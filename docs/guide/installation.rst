@@ -1,6 +1,26 @@
 Installation
 ============
 
+.. admonition:: Already installed zmesNg? You probably don't need this page
+   :class: important
+
+   If you ran zmesNg's ``install.sh`` and installed the ML hooks, pyzm is
+   already installed in ``/opt/zoneminder/venv``. The hooks need pyzm, so the
+   installer pulls it in with them. You don't need to install it again.
+
+   You only need this page if you want to:
+
+   - use pyzm without zmesNg, for example to script against the ZoneMinder API
+   - add an extra the zmesNg installer leaves out, such as ``serve`` (the
+     remote ML server) or ``train`` (the model training UI)
+   - run pyzm from a source checkout, or upgrade pyzm on its own
+   - add one of the `Optional dependencies`_, such as BirdNET or face
+     recognition
+
+   pyzm needs OpenCV, and the zmesNg installer doesn't install it. Follow
+   the `OpenCV step in the zmesNg install guide
+   <https://zmeventnotificationng.readthedocs.io/en/latest/guides/install_path1.html#opencv-install>`__.
+
 .. important::
 
    pyzm and zmesNg now install into a **shared Python virtual
