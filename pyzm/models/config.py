@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, SecretStr, model_validator
 
@@ -93,8 +93,14 @@ class FrameStrategy(str, Enum):
 # ---------------------------------------------------------------------------
 
 class ZMClientConfig(BaseModel):
-    """Connection settings for ZoneMinder."""
+    """Connection settings for ZoneMinder.
+
+    ``api_backend`` picks the server API: ``"v2"`` is ZoneMinder's CakePHP API
+    (``api_url`` like ``https://host/zm/api``); ``"v3"`` is zm-api
+    (``api_url`` like ``https://host:8080/api/v3``).
+    """
     api_url: str
+    api_backend: Literal["v2", "v3"] = "v2"
     portal_url: str | None = None
     user: str | None = None
     password: SecretStr | None = None
@@ -113,6 +119,9 @@ class ZMClientConfig(BaseModel):
 
     @model_validator(mode="after")
     def _derive_portal_url(self) -> "ZMClientConfig":
+        # zm-api serves frames itself; there is no portal to derive.
+        if self.api_backend == "v3":
+            return self
         if self.portal_url is None and self.api_url.endswith("/api"):
             self.portal_url = self.api_url[: -len("/api")]
         return self

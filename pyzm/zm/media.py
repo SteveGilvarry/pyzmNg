@@ -5,7 +5,7 @@ Supports three source types:
 * **Image file** -- a local ``.jpg`` / ``.png`` path.
 * **Video file** -- a local video path (read via OpenCV).
 * **ZM API** -- numeric event ID fetched frame-by-frame through
-  ``index.php`` (the ZM image-serving endpoint).
+  ``index.php`` (v2) or zm-api's ``events/{id}/frames/{fid}/image`` (v3).
 
 Heavy dependencies (``cv2``, ``numpy``) are imported at function level so
 that this module can be imported even when they are not installed.
@@ -179,11 +179,7 @@ class FrameExtractor:
                 f"Cannot fetch event {eid} via ZM API: no ZMAPI instance provided"
             )
 
-        base_url = (
-            f"{self._api.portal_url}/index.php"
-            f"?view=image&eid={eid}"
-        )
-        logger.debug("Streaming event %s from %s", eid, base_url)
+        logger.debug("Streaming event %s", eid)
 
         frame_set = self._resolve_frame_set(is_api=True)
 
@@ -205,7 +201,7 @@ class FrameExtractor:
             if self._cfg.delay_between_snapshots and fid == "snapshot" and frames_yielded > 0:
                 time.sleep(self._cfg.delay_between_snapshots)
 
-            url = f"{base_url}&fid={fid}"
+            url = self._api.frame_image_url(eid, fid)
             logger.debug("Fetching frame: %s", url)
 
             img = self._fetch_frame_image(url, cv2, np)
@@ -313,8 +309,14 @@ class FrameExtractor:
         return frame_set
 
     def _resolve_snapshots(self, frame_set: list[str], eid: str) -> list[str]:
-        """Replace 'snapshot' entries with the real MaxScoreFrameId if configured."""
+        """Replace 'snapshot' entries with the real MaxScoreFrameId if configured.
+
+        zm-api resolves ``snapshot`` server-side and does not return
+        MaxScoreFrameId, so v3 keeps the literal ``snapshot``.
+        """
         if not self._cfg.convert_snapshot_to_fid or self._api is None:
+            return frame_set
+        if self._api.is_v3:
             return frame_set
 
         result = list(frame_set)

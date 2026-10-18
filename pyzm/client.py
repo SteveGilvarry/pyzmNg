@@ -49,10 +49,20 @@ class ZMClient:
     verify_ssl:
         Whether to verify SSL certificates.  Set to ``False`` for
         self-signed certs.
+    api_backend:
+        ``"v2"`` (default) for ZoneMinder's CakePHP API, ``"v3"`` for zm-api.
+        With ``"v3"`` the constructor returns a
+        :class:`pyzm.zm.v3_client.ZMClientV3`.
     config:
         A pre-built :class:`ZMClientConfig`.  When provided, all other
         keyword args are ignored.
     """
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> "ZMClient":
+        if cls is ZMClient and _wants_v3(kwargs):
+            from pyzm.zm.v3_client import ZMClientV3
+            cls = ZMClientV3
+        return super().__new__(cls)
 
     def __init__(
         self,
@@ -68,6 +78,7 @@ class ZMClient:
         db_host: str | None = None,
         db_name: str | None = None,
         conf_path: str | None = None,
+        api_backend: str = "v2",
         config: ZMClientConfig | None = None,
     ) -> None:
         if config is not None:
@@ -77,6 +88,7 @@ class ZMClient:
                 raise ValueError("Either 'api_url' or 'config' must be provided")
             self._config = ZMClientConfig(
                 api_url=api_url.rstrip("/"),
+                api_backend=api_backend,
                 portal_url=portal_url,
                 user=user,
                 password=password,
@@ -154,11 +166,17 @@ class ZMClient:
         for m in self.monitors():
             if m.id == monitor_id:
                 return m
-        # Fallback: direct API call
+        mon = self._fetch_monitor(monitor_id)
+        if mon is not None:
+            return mon
+        raise ValueError(f"Monitor {monitor_id} not found")
+
+    def _fetch_monitor(self, monitor_id: int) -> Monitor | None:
+        """Fetch one monitor from the API, bypassing the cache."""
         data = self._api.get(f"monitors/{monitor_id}.json")
         if data and data.get("monitor"):
             return Monitor.from_api_dict(data["monitor"], client=self)
-        raise ValueError(f"Monitor {monitor_id} not found")
+        return None
 
     # ------------------------------------------------------------------
     # Events
@@ -273,7 +291,7 @@ class ZMClient:
             limit=limit,
         )
         for ev in matched:
-            self._api.delete(f"events/{ev.id}.json")
+            self._delete_event(ev.id)
         return len(matched)
 
     # ------------------------------------------------------------------
@@ -558,22 +576,10 @@ class ZMClient:
             logger.warning("Cannot resolve event path: no storage path for event %s", event_id)
             return None
 
-        monitor_id = row["MonitorId"]
-        scheme = (scheme or "Medium").capitalize()
         start_dt = row["StartDateTime"]
         if isinstance(start_dt, str):
             start_dt = _dt.strptime(start_dt, "%Y-%m-%d %H:%M:%S")
-
-        if scheme == "Deep":
-            relative = "{}/{}".format(monitor_id, start_dt.strftime("%y/%m/%d/%H/%M/%S"))
-        elif scheme == "Medium":
-            relative = "{}/{}/{}".format(monitor_id, start_dt.strftime("%Y-%m-%d"), event_id)
-        else:
-            relative = "{}/{}".format(monitor_id, event_id)
-
-        path = os.path.join(storage_path, relative)
-        logger.debug("Event %s path (scheme=%s): %s", event_id, scheme, path)
-        return path
+        return _event_dir(storage_path, scheme, row["MonitorId"], event_id, start_dt)
 
     def _event_frames(self, event_id: int) -> list[Frame]:
         """Fetch per-frame metadata (Score, Type, Delta) for an event."""
@@ -720,6 +726,31 @@ class ZMClient:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _wants_v3(kwargs: dict[str, Any]) -> bool:
+    """True when ZMClient(...) kwargs ask for the zm-api (v3) backend."""
+    config = kwargs.get("config")
+    if config is not None:
+        return config.api_backend == "v3"
+    return kwargs.get("api_backend") == "v3"
+
+
+def _event_dir(
+    storage_path: str, scheme: str | None, monitor_id: int, event_id: int,
+    start_dt: Any,
+) -> str:
+    """Filesystem directory of an event under ZM's storage *scheme*."""
+    scheme = (scheme or "Medium").capitalize()
+    if scheme == "Deep":
+        relative = "{}/{}".format(monitor_id, start_dt.strftime("%y/%m/%d/%H/%M/%S"))
+    elif scheme == "Medium":
+        relative = "{}/{}/{}".format(monitor_id, start_dt.strftime("%Y-%m-%d"), event_id)
+    else:
+        relative = "{}/{}".format(monitor_id, event_id)
+    path = os.path.join(storage_path, relative)
+    logger.debug("Event %s path (scheme=%s): %s", event_id, scheme, path)
+    return path
+
 
 def _parse_zone_coords(coords_str: str) -> list[tuple[float, float]]:
     """Parse ZM zone coordinate string like ``"0,0 639,0 639,479 0,479"``.

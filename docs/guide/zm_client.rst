@@ -32,6 +32,10 @@ Constructor parameters
    * - ``api_url``
      - (required)
      - Full ZM API URL (e.g. ``https://server/zm/api``)
+   * - ``api_backend``
+     - ``"v2"``
+     - ``"v2"`` for ZoneMinder's CakePHP API, ``"v3"`` for zm-api. See
+       `Using zm-api (v3)`_.
    * - ``user``
      - ``None``
      - ZM username. ``None`` when auth is disabled.
@@ -87,6 +91,62 @@ installations.
 
 Set ``verify_ssl=False`` if your ZM server uses a self-signed TLS
 certificate.
+
+Using zm-api (v3)
+------------------
+
+`zm-api <https://github.com/SteveGilvarry/zm-api>`_ is a separate REST
+server for ZoneMinder that serves ``/api/v3``. To use it instead of the
+CakePHP API, pass ``api_backend="v3"`` and point ``api_url`` at the
+``/api/v3`` prefix:
+
+.. code-block:: python
+
+   zm = ZMClient(
+       api_url="https://zm.example.com:8080/api/v3",
+       user="admin",
+       password="secret",
+       api_backend="v3",
+   )
+
+The constructor then returns a ``ZMClientV3``, a ``ZMClient`` subclass.
+Monitors, events, zones, frames and configs come back as the same models
+and dict shapes as on v2. Config, state, server and storage dicts keep the
+v2 CamelCase keys (``cfg["Value"]``).
+
+Differences from v2:
+
+- ``ev.tag()``, ``ev.path()`` and ``ev.save_objdetect()`` use the API,
+  so they need no database access. BirdNET audio extraction still reads
+  the database.
+- Frames are fetched from ``events/{id}/frames/{fid}/image``. zm-api
+  resolves ``snapshot`` itself and does not return ``MaxScoreFrameId``, so
+  ``convert_snapshot_to_fid`` has no effect and the frame id stays
+  ``"snapshot"``.
+- ``events(until=...)`` matches an event's end time, so events that are
+  still recording are left out.
+- ``zm.notifications()`` and the other notification calls raise
+  ``NotImplementedError``. zm-api has no notifications endpoint.
+- ``m.streaming_url()`` raises ``NotImplementedError``; zm-api streams HLS
+  and WebRTC, not MJPEG. ``m.snapshot_url()`` returns zm-api's snapshot
+  endpoint.
+- ``m.ptz()`` supports continuous moves, zoom, stop, home and presets.
+  Relative and absolute moves raise ``ValueError``. ``stop_after`` is sent
+  as ``duration_ms`` and zm-api stops the move itself.
+- ``m.alarm_status()`` returns the ``monitor-status`` row
+  (``status`` is ``Idle``, ``Alarm`` and so on).
+- When zm-api runs in passive mode its daemon manager is off.
+  ``m.daemon_status()``, ``zm.system_load()`` and ``zm.disk_usage()``
+  then return ``{}`` and ``zm.is_running()`` returns ``False``.
+  ``system_load()`` reports only the 1-minute load.
+- ``set_state("start" | "stop" | "restart")`` calls
+  ``server/control/{action}``; any other name applies that run state
+  through ``system/state``.
+
+Authentication uses zm-api's JWT tokens: pyzm logs in with
+``auth/login``, sends the access token as a Bearer header and renews it
+through ``auth/refresh`` before it expires. Frame URLs handed to the remote
+ML gateway carry ``?token=``, which zm-api accepts on media endpoints.
 
 Database access
 ----------------

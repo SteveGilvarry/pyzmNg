@@ -1629,6 +1629,8 @@ class TestRemoteInference:
 
         zm = MagicMock()
         zm.api.portal_url = "http://zm"
+        zm.api.frame_image_url.side_effect = (
+            lambda e, f: f"http://zm/index.php?view=image&eid={e}&fid={f}")
         zm.api.auth.get_auth_string.return_value = "token=x"
         zm.api.config.verify_ssl = True
         ev = MagicMock(); ev.monitor_id = 5
@@ -1667,6 +1669,8 @@ class TestRemoteInference:
 
         zm = MagicMock()
         zm.api.portal_url = "http://zm"
+        zm.api.frame_image_url.side_effect = (
+            lambda e, f: f"http://zm/index.php?view=image&eid={e}&fid={f}")
         ev = MagicMock(); ev.monitor_id = 5
         ev.extract_frames.return_value = ([], {})
         zm.event.return_value = ev
@@ -1846,6 +1850,8 @@ class TestMultiFrameErrorHandling:
                   ("2", np.zeros((10, 10, 3), np.uint8))]
         zm = MagicMock()
         zm.api.portal_url = "http://zm"
+        zm.api.frame_image_url.side_effect = (
+            lambda e, f: f"http://zm/index.php?view=image&eid={e}&fid={f}")
         ev = zm.event.return_value
         ev.monitor_id = 5
         ev.extract_frames.return_value = (frames, {"original": None})

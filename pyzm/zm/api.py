@@ -18,6 +18,7 @@ from urllib3.util.retry import Retry
 
 from pyzm.models.config import ZMClientConfig
 from pyzm.zm.auth import AuthManager, redact_secrets
+from pyzm.zm.v3_auth import V3AuthManager
 
 logger = logging.getLogger("pyzm.zm")
 
@@ -78,12 +79,22 @@ class ZMAPI:
         password_plain = (
             config.password.get_secret_value() if config.password else None
         )
-        self._auth = AuthManager(
-            session=self._session,
-            api_url=self._api_url,
-            user=config.user,
-            password=password_plain,
-        )
+        self._v3 = config.api_backend == "v3"
+        if self._v3:
+            self._auth: AuthManager | V3AuthManager = V3AuthManager(
+                session=self._session,
+                api_url=self._api_url,
+                user=config.user,
+                password=password_plain,
+                timeout=config.timeout,
+            )
+        else:
+            self._auth = AuthManager(
+                session=self._session,
+                api_url=self._api_url,
+                user=config.user,
+                password=password_plain,
+            )
         self._auth.login()
 
     # ------------------------------------------------------------------
@@ -107,12 +118,26 @@ class ZMAPI:
         return self._auth.zm_version
 
     @property
+    def is_v3(self) -> bool:
+        """True when talking to zm-api (``/api/v3``) instead of CakePHP."""
+        return self._v3
+
+    @property
     def session(self) -> requests.Session:
         return self._session
 
     @property
-    def auth(self) -> AuthManager:
+    def auth(self) -> AuthManager | V3AuthManager:
         return self._auth
+
+    def frame_image_url(self, event_id: int | str, frame_id: int | str) -> str:
+        """URL of one event frame as a JPEG, without auth.
+
+        *frame_id* is a 1-based frame number or ``alarm`` / ``snapshot``.
+        """
+        if self._v3:
+            return f"{self._api_url}/events/{event_id}/frames/{frame_id}/image"
+        return f"{self._portal_url}/index.php?view=image&eid={event_id}&fid={frame_id}"
 
     # ------------------------------------------------------------------
     # Core request method
@@ -133,11 +158,11 @@ class ZMAPI:
         url:
             Full URL to request.
         method:
-            HTTP method (``get``, ``post``, ``put``, ``delete``).
+            HTTP method (``get``, ``post``, ``put``, ``patch``, ``delete``).
         params:
             Query parameters.
         payload:
-            Form data for POST/PUT.
+            Request body: form data on v2, JSON on v3.
         reauth:
             If ``True`` (default), a 401 response triggers a single
             relogin-and-retry cycle.
@@ -196,6 +221,12 @@ class ZMAPI:
             f"{self._api_url}/{endpoint}", method="put", payload=data,
         )
 
+    def patch(self, endpoint: str, data: dict[str, Any] | None = None) -> Any:
+        """PATCH ``{api_url}/{endpoint}`` (zm-api updates use PATCH)."""
+        return self.request(
+            f"{self._api_url}/{endpoint}", method="patch", payload=data,
+        )
+
     def delete(self, endpoint: str) -> Any:
         """DELETE ``{api_url}/{endpoint}``."""
         return self.request(f"{self._api_url}/{endpoint}", method="delete")
@@ -211,22 +242,23 @@ class ZMAPI:
         params: dict[str, str],
         payload: dict[str, Any] | None,
     ) -> requests.Response:
-        """Dispatch the actual HTTP call."""
+        """Dispatch the actual HTTP call.
+
+        v2 (CakePHP) takes form-encoded bodies; zm-api takes JSON.
+        """
+        body = {"json": payload} if self._v3 else {"data": payload}
+        timeout = self.config.timeout
         match method:
             case "get":
-                return self._session.get(url, params=params, timeout=self.config.timeout)
+                return self._session.get(url, params=params, timeout=timeout)
             case "post":
-                return self._session.post(
-                    url, data=payload, params=params, timeout=self.config.timeout,
-                )
+                return self._session.post(url, params=params, timeout=timeout, **body)
             case "put":
-                return self._session.put(
-                    url, data=payload, params=params, timeout=self.config.timeout,
-                )
+                return self._session.put(url, params=params, timeout=timeout, **body)
+            case "patch":
+                return self._session.patch(url, params=params, timeout=timeout, **body)
             case "delete":
-                return self._session.delete(
-                    url, data=payload, params=params, timeout=self.config.timeout,
-                )
+                return self._session.delete(url, params=params, timeout=timeout, **body)
             case _:
                 raise ValueError(f"Unsupported HTTP method: {method}")
 
@@ -240,7 +272,7 @@ class ZMAPI:
         if content_type.startswith("image/"):
             return resp
 
-        if method in ("delete", "post", "put"):
+        if method in ("delete", "post", "put", "patch"):
             return None
 
         # Non-JSON, non-image GET -- likely a stale-auth redirect or bad image.
@@ -275,13 +307,20 @@ class ZMAPI:
             # Return None so the caller can raise its own descriptive error
             # (e.g. "Event 5 not found").  Only image/frame fetches map to
             # BAD_IMAGE (relied on by media.py and zm_detect.py).
-            if url.split("?", 1)[0].endswith(".json"):
+            if self._is_json_endpoint(url):
                 logger.debug("Got 404 on JSON endpoint; returning None")
                 return None
             logger.debug("Got 404; raising BAD_IMAGE")
             raise ValueError("BAD_IMAGE")
 
         raise exc
+
+    def _is_json_endpoint(self, url: str) -> bool:
+        """True for a resource endpoint, False for an image/media fetch."""
+        path = url.split("?", 1)[0]
+        if self._v3:
+            return not path.endswith(("/image", "/snapshot", "/thumbnail"))
+        return path.endswith(".json")
 
     def _handle_value_error(
         self,

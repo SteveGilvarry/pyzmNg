@@ -560,7 +560,6 @@ class Detector:
         from pyzm.ml.remote import GatewayUnreachable
 
         api = zm_client.api
-        portal = api.portal_url
         auth = api.auth.get_auth_string()
         verify = api.config.verify_ssl
         ev = zm_client.event(event_id)
@@ -586,7 +585,7 @@ class Detector:
         try:
             for fid in self._url_frame_ids(sc):
                 self._gw_client.current_frame = {
-                    "url": f"{portal}/index.php?view=image&eid={event_id}&fid={fid}",
+                    "url": api.frame_image_url(event_id, fid),
                     "zm_auth": auth, "verify_ssl": verify,
                 }
                 try:

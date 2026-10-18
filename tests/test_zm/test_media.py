@@ -19,6 +19,9 @@ from pyzm.zm.media import FrameExtractor
 def _make_mock_api() -> MagicMock:
     api = MagicMock()
     api.portal_url = "https://zm.example.com/zm"
+    api.is_v3 = False
+    api.frame_image_url.side_effect = (
+        lambda e, f: f"{api.portal_url}/index.php?view=image&eid={e}&fid={f}")
     return api
 
 

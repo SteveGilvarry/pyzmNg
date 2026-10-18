@@ -21,6 +21,7 @@ def _make_mock_api():
     api.zm_version = "1.36.12"
     api.api_url = "https://zm.example.com/zm/api"
     api.portal_url = "https://zm.example.com/zm"
+    api.is_v3 = False
     return api
 
 
