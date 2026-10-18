@@ -127,9 +127,10 @@ Differences from v2:
   still recording are left out.
 - ``zm.notifications()`` and the other notification calls raise
   ``NotImplementedError``. zm-api has no notifications endpoint.
-- ``m.streaming_url()`` raises ``NotImplementedError``; zm-api streams HLS
-  and WebRTC, not MJPEG. ``m.snapshot_url()`` returns zm-api's snapshot
-  endpoint.
+- ``m.streaming_url()`` (MJPEG) raises ``NotImplementedError``; use
+  ``m.streaming_url(protocol="hls")``, which starts a live session and
+  returns its playlist URL. ``m.snapshot_url()`` returns zm-api's
+  snapshot endpoint.
 - ``m.ptz()`` supports continuous moves, zoom, stop, home and presets.
   Relative and absolute moves raise ``ValueError``. ``stop_after`` is sent
   as ``duration_ms`` and zm-api stops the move itself.

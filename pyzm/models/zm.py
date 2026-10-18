@@ -396,15 +396,20 @@ class Monitor:
         Parameters
         ----------
         protocol:
-            Streaming protocol.  Currently only ``"mjpeg"`` is supported.
+            ``"mjpeg"`` (ZMS, v2 only) or ``"hls"`` (zm-api, v3 only).
+            ``"hls"`` starts a live session on zm-api and returns the
+            master playlist URL with ``?token=``; the token expires with
+            the access token, so fetch a fresh URL for long sessions.
         **kwargs:
-            Extra query params forwarded to the URL (e.g. ``maxfps=5``,
-            ``scale=50``).
+            Extra query params forwarded to the MJPEG URL (e.g.
+            ``maxfps=5``, ``scale=50``).
         """
         self._require_client()
-        if protocol != "mjpeg":
-            raise ValueError(f"Unknown streaming protocol: {protocol!r}")
-        return self._client._streaming_url_mjpeg(self.id, **kwargs)
+        if protocol == "mjpeg":
+            return self._client._streaming_url_mjpeg(self.id, **kwargs)
+        if protocol == "hls":
+            return self._client._streaming_url_hls(self.id)
+        raise ValueError(f"Unknown streaming protocol: {protocol!r}")
 
     def snapshot_url(self, **kwargs) -> str:
         """Return a single-frame snapshot URL for this monitor.

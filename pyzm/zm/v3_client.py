@@ -151,11 +151,28 @@ class ZMClientV3(ZMClient):
 
     def _zms_url(self, monitor_id: int, mode: str, **kwargs) -> str:
         raise NotImplementedError(
-            "zm-api has no ZMS/MJPEG streams; use its HLS or WebRTC live endpoints"
+            "zm-api has no ZMS/MJPEG streams; use streaming_url(protocol='hls')"
         )
 
     def _streaming_url_mjpeg(self, monitor_id: int, **kwargs) -> str:
         return self._zms_url(monitor_id, "jpeg", **kwargs)
+
+    def _streaming_url_hls(self, monitor_id: int) -> str:
+        """Start (or join) a live HLS session and return its master playlist URL."""
+        try:
+            started = self._api.post(
+                f"live/{monitor_id}/start",
+                data={"enable_hls": True, "enable_webrtc": False},
+            )
+        except requests.HTTPError as exc:
+            if exc.response is None or exc.response.status_code != 409:
+                raise
+            started = {"status": "running"}  # 409: a session already exists
+        if not started:
+            raise ValueError(f"No live stream source for monitor {monitor_id}")
+        url = f"{self._api.api_url}/live/{monitor_id}/hls/master.m3u8"
+        auth = self._api.auth.get_auth_string()
+        return f"{url}?{auth}" if auth else url
 
     def _snapshot_url(self, monitor_id: int, **kwargs) -> str:
         url = f"{self._api.api_url}/monitors/{monitor_id}/snapshot"

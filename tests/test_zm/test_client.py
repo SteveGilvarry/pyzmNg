@@ -653,6 +653,16 @@ class TestMonitorOOP:
         with pytest.raises(ValueError, match="Unknown streaming protocol"):
             m.streaming_url(protocol="webrtc")
 
+    @patch("pyzm.client.ZMAPI")
+    def test_streaming_url_hls_needs_v3(self, mock_zmapi_cls):
+        """HLS exists only on zm-api; v2 says so instead of building a bad URL."""
+        mock_zmapi_cls.return_value = _make_mock_api()
+        from pyzm.client import ZMClient
+        client = ZMClient(api_url="https://zm.example.com/zm/api", user="admin", password="secret")
+        m = Monitor(id=1, name="Test", _client=client)
+        with pytest.raises(NotImplementedError, match="v3"):
+            m.streaming_url(protocol="hls")
+
     def test_streaming_url_without_client_raises(self):
         """Monitor not bound to client raises RuntimeError."""
         m = Monitor(id=1, name="Test")

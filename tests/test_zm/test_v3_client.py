@@ -170,9 +170,47 @@ class TestMonitors:
     def test_snapshot_url(self, zm):
         assert zm._snapshot_url(5) == f"{API}/monitors/5/snapshot"
 
-    def test_mjpeg_not_available(self, zm):
-        with pytest.raises(NotImplementedError):
+    def test_mjpeg_not_available_points_to_hls(self, zm):
+        with pytest.raises(NotImplementedError, match="hls"):
             zm._streaming_url_mjpeg(1)
+
+
+class TestHLS:
+    def _monitor(self, zm):
+        from pyzm.models.zm import Monitor
+        return Monitor(id=3, name="Cam", _client=zm)
+
+    def test_starts_session_and_returns_tokened_master_playlist(self, zm, api):
+        api.auth.get_auth_string.return_value = "token=ACC1"
+        api.post.return_value = {"monitor_id": 3, "status": "started"}
+
+        url = self._monitor(zm).streaming_url(protocol="hls")
+
+        api.post.assert_called_once_with(
+            "live/3/start", data={"enable_hls": True, "enable_webrtc": False})
+        assert url == f"{API}/live/3/hls/master.m3u8?token=ACC1"
+
+    def test_session_already_running_still_returns_url(self, zm, api):
+        api.auth.get_auth_string.return_value = "token=ACC1"
+        api.post.side_effect = _http_error(409)
+        assert self._monitor(zm).streaming_url(protocol="hls").endswith(
+            "/live/3/hls/master.m3u8?token=ACC1")
+
+    def test_no_stream_source_raises(self, zm, api):
+        api.post.return_value = None  # zm-api 404: stream socket not available
+        with pytest.raises(ValueError, match="monitor 3"):
+            self._monitor(zm).streaming_url(protocol="hls")
+
+    def test_other_start_errors_raise(self, zm, api):
+        api.post.side_effect = _http_error(503)
+        with pytest.raises(requests.HTTPError):
+            self._monitor(zm).streaming_url(protocol="hls")
+
+    def test_no_auth_leaves_url_bare(self, zm, api):
+        api.auth.get_auth_string.return_value = ""
+        api.post.return_value = {"status": "started"}
+        assert self._monitor(zm).streaming_url(protocol="hls") == (
+            f"{API}/live/3/hls/master.m3u8")
 
 
 class TestPTZ:

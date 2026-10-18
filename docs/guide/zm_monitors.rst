@@ -65,6 +65,23 @@ Streaming & snapshot URLs
 Both URLs are built from the portal URL and ``ZM_PATH_ZMS`` config, with
 automatic path deduplication (e.g. ``/zm`` won't be doubled).
 
+On zm-api (``api_backend="v3"``) there is no MJPEG stream. Ask for HLS
+instead:
+
+.. code-block:: python
+
+   url = m.streaming_url(protocol="hls")
+   # https://host:8080/api/v3/live/1/hls/master.m3u8?token=...
+
+This starts a live HLS session for the monitor (or joins one that is
+already running) and returns the master playlist URL with the access
+token attached, so VLC, ffmpeg or OpenCV can open it without sending an
+auth header. The token expires with the access token; call
+``streaming_url`` again for a fresh URL. zm-api currently drops the token
+from the segment URIs inside the playlist (zm-api#153), so players that
+can't send an ``Authorization`` header stop after the first request until
+that is fixed. ``protocol="hls"`` on v2 raises ``NotImplementedError``.
+
 PTZ control
 ------------
 

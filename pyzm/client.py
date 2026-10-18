@@ -369,6 +369,12 @@ class ZMClient:
         """Build an MJPEG streaming URL for a monitor."""
         return self._zms_url(monitor_id, "jpeg", **kwargs)
 
+    def _streaming_url_hls(self, monitor_id: int) -> str:
+        """HLS is served by zm-api only."""
+        raise NotImplementedError(
+            "HLS streaming needs zm-api; connect with api_backend='v3'"
+        )
+
     def _snapshot_url(self, monitor_id: int, **kwargs) -> str:
         """Build a single-frame snapshot URL for a monitor."""
         return self._zms_url(monitor_id, "single", **kwargs)
