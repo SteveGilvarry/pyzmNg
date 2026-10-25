@@ -7,6 +7,7 @@ Models carry a ``_client`` back-reference so that resource operations
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -14,6 +15,16 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from pyzm.client import ZMClient
     from pyzm.models.config import StreamConfig
+
+# The monitors/alarm status endpoint's numbers, by index.  ZM 1.36.16 moved
+# zmu's states up by one; the API only subtracted it again from 1.36.26.
+_ALARM_STATES = ("idle", "prealarm", "alarm", "alert", "tape")
+
+
+def _alarm_status_offset(zm_version: str | None) -> bool:
+    """True on the ZM releases whose alarm status is one higher."""
+    m = re.match(r"(\d+)\.(\d+)\.(\d+)", zm_version or "")
+    return bool(m) and (1, 36, 16) <= tuple(map(int, m.groups())) <= (1, 36, 25)
 
 
 @dataclass
@@ -330,13 +341,21 @@ class Monitor:
     so that resource operations are available as methods::
 
         m = zm.monitor(1)
-        m.zones()
+        m.get_zones()
         m.arm()
-        m.update(Function="Modect")
+        m.update(Analysing="Always", Recording="OnMotion")
+
+    On ZM 1.37+, ``capturing``, ``analysing`` and ``recording`` hold what the
+    monitor does.  ``function`` is the legacy ``Function`` column, which ZM
+    no longer keeps current there.
     """
     id: int
     name: str = ""
-    function: str = ""      # "Monitor", "Modect", "Record", etc.
+    function: str = ""      # legacy: "Monitor", "Modect", "Record", etc.
+    capturing: str = ""     # ZM 1.37+: "None", "Ondemand", "Always"
+    analysing: str = ""     # ZM 1.37+: "None", "Always"
+    recording: str = ""     # ZM 1.37+: "None", "OnMotion", "Always"
+    server_id: int | None = None  # multi-server: the Servers row hosting it
     enabled: bool = True
     width: int = 0
     height: int = 0
@@ -380,6 +399,22 @@ class Monitor:
         self._require_client()
         return self._client._alarm_status(self.id)
 
+    def alarm_state(self) -> str:
+        """This monitor's alarm state: ``"idle"``, ``"prealarm"``, ``"alarm"``,
+        ``"alert"``, ``"tape"`` or ``"unknown"``.
+
+        Reads :meth:`alarm_status` and accounts for ZM 1.36.16 through
+        1.36.25, where the API reports every state one higher.
+        """
+        status = self.alarm_status().get("status")
+        try:
+            index = int(status)
+        except (TypeError, ValueError):
+            return "unknown"
+        if _alarm_status_offset(self._client.zm_version):
+            index -= 1
+        return _ALARM_STATES[index] if 0 <= index < len(_ALARM_STATES) else "unknown"
+
     def update(self, **kwargs) -> None:
         """Update monitor fields (Function, Enabled, Name, etc.)."""
         self._require_client()
@@ -390,13 +425,19 @@ class Monitor:
         self._require_client()
         return self._client._daemon_status(self.id)
 
-    def streaming_url(self, protocol: str = "mjpeg", **kwargs) -> str:
+    def streaming_url(
+        self, protocol: str = "mjpeg", *, authenticated: bool = False, **kwargs,
+    ) -> str:
         """Return a streaming URL for this monitor.
 
         Parameters
         ----------
         protocol:
             Streaming protocol.  Currently only ``"mjpeg"`` is supported.
+        authenticated:
+            Append the current auth token, so a client without a ZM session
+            can open the URL.  Tokens expire, so build the URL when you
+            need it rather than storing it.
         **kwargs:
             Extra query params forwarded to the URL (e.g. ``maxfps=5``,
             ``scale=50``).
@@ -404,18 +445,24 @@ class Monitor:
         self._require_client()
         if protocol != "mjpeg":
             raise ValueError(f"Unknown streaming protocol: {protocol!r}")
-        return self._client._streaming_url_mjpeg(self.id, **kwargs)
+        return self._client._streaming_url_mjpeg(
+            self.id, server_id=self.server_id, authenticated=authenticated, **kwargs,
+        )
 
-    def snapshot_url(self, **kwargs) -> str:
+    def snapshot_url(self, *, authenticated: bool = False, **kwargs) -> str:
         """Return a single-frame snapshot URL for this monitor.
 
         Parameters
         ----------
+        authenticated:
+            Append the current auth token, as for :meth:`streaming_url`.
         **kwargs:
             Extra query params forwarded to the URL (e.g. ``scale=50``).
         """
         self._require_client()
-        return self._client._snapshot_url(self.id, **kwargs)
+        return self._client._snapshot_url(
+            self.id, server_id=self.server_id, authenticated=authenticated, **kwargs,
+        )
 
     def events(self, **kwargs) -> list[Event]:
         """Query events scoped to this monitor.
@@ -534,10 +581,15 @@ class Monitor:
         mon = data.get("Monitor", data)
         status_data = data.get("Monitor_Status", {})
         raw_control_id = mon.get("ControlId")
+        raw_server_id = mon.get("ServerId")
         return cls(
             id=int(mon.get("Id", 0)),
             name=mon.get("Name", ""),
             function=mon.get("Function", ""),
+            capturing=mon.get("Capturing") or "",
+            analysing=mon.get("Analysing") or "",
+            recording=mon.get("Recording") or "",
+            server_id=int(raw_server_id) if raw_server_id else None,
             enabled=str(mon.get("Enabled", "0")) == "1",
             width=int(mon.get("Width", 0)),
             height=int(mon.get("Height", 0)),

@@ -2311,3 +2311,199 @@ class TestDBWithPyMySQL:
         }
 
         assert self._client(mock_zmapi_cls, conn)._event_path(42) is None
+
+
+# ===================================================================
+# Event counts, ZM 1.37+ monitor state, alarm state, stream URLs (#89)
+# ===================================================================
+
+def _client_with(mock_zmapi_cls, *responses, zm_version="1.39.18", portal="https://zm.example.com/zm"):
+    mock_api = _make_mock_api()
+    mock_api.zm_version = zm_version
+    mock_api.portal_url = portal
+    mock_api.get.side_effect = list(responses)
+    mock_zmapi_cls.return_value = mock_api
+    from pyzm.client import ZMClient
+    return ZMClient(api_url="https://zm.example.com/zm/api"), mock_api
+
+
+def _monitor_data(mid=3, **fields):
+    data = _sample_monitor_api_data(mid, function="Monitor")
+    data["Monitor"].update(fields)
+    return data
+
+
+_ZMS_CONFIG = {"config": {"Config": {"Name": "ZM_PATH_ZMS", "Value": "/zm/cgi-bin/nph-zms"}}}
+
+
+class TestEventCounts:
+
+    @patch("pyzm.client.ZMAPI")
+    def test_counts_per_monitor_excluding_archived(self, mock_zmapi_cls):
+        client, api = _client_with(mock_zmapi_cls, {"results": {"2": "4", "6": 3}})
+        assert client.event_counts("1 day") == {2: 4, 6: 3}
+        api.get.assert_called_once_with("events/consoleEvents/1%20day/Archived:0.json")
+
+    @patch("pyzm.client.ZMAPI")
+    def test_include_archived_drops_the_filter(self, mock_zmapi_cls):
+        client, api = _client_with(mock_zmapi_cls, {"results": {"1": 2}})
+        assert client.event_counts("1 hour", include_archived=True) == {1: 2}
+        api.get.assert_called_once_with("events/consoleEvents/1%20hour.json")
+
+    @patch("pyzm.client.ZMAPI")
+    def test_no_events_gives_empty_dict(self, mock_zmapi_cls):
+        # ZM serializes an empty PHP array as [] rather than {}
+        client, _ = _client_with(mock_zmapi_cls, {"results": []})
+        assert client.event_counts("1 second") == {}
+
+    @patch("pyzm.client.ZMAPI")
+    def test_bad_interval_fails_before_any_request(self, mock_zmapi_cls):
+        client, api = _client_with(mock_zmapi_cls)
+        with pytest.raises(ValueError, match="interval"):
+            client.event_counts("yesterday")
+        api.get.assert_not_called()
+
+
+class TestMonitorStateFields:
+
+    def test_split_state_fields_and_server_id(self):
+        m = Monitor.from_api_dict(_monitor_data(
+            Capturing="Always", Analysing="Always", Recording="OnMotion", ServerId="2"))
+        assert (m.capturing, m.analysing, m.recording, m.server_id) == ("Always", "Always", "OnMotion", 2)
+        assert m.function == "Monitor"  # the legacy column, unchanged
+
+    def test_older_zm_without_split_fields(self):
+        m = Monitor.from_api_dict(_sample_monitor_api_data(1))
+        assert (m.capturing, m.analysing, m.recording, m.server_id) == ("", "", "", None)
+
+
+class TestAlarmState:
+
+    @pytest.mark.parametrize("zm_version,status,expected", [
+        ("1.39.18", 0, "idle"),
+        ("1.39.18", 2, "alarm"),
+        ("1.39.18", -1, "unknown"),
+        ("1.36.26", 3, "alert"),
+        ("1.36.15", 1, "prealarm"),
+        # 1.36.16-1.36.25: zmu's states moved up by one and the API didn't subtract it
+        ("1.36.16", 1, "idle"),
+        ("1.36.25", 3, "alarm"),
+    ])
+    @patch("pyzm.client.ZMAPI")
+    def test_status_number_to_name(self, mock_zmapi_cls, zm_version, status, expected):
+        client, _ = _client_with(mock_zmapi_cls, {"monitors": [_monitor_data(3)]},
+                                 {"status": status, "output": status}, zm_version=zm_version)
+        assert client.monitor(3).alarm_state() == expected
+
+    @patch("pyzm.client.ZMAPI")
+    def test_failed_zmu_call_is_unknown(self, mock_zmapi_cls):
+        client, _ = _client_with(mock_zmapi_cls, {"monitors": [_monitor_data(3)]},
+                                 {"status": "false", "code": 1, "error": "x"})
+        assert client.monitor(3).alarm_state() == "unknown"
+
+
+class TestStreamUrls:
+
+    @patch("pyzm.client.ZMAPI")
+    def test_zms_path_is_looked_up_once(self, mock_zmapi_cls):
+        client, api = _client_with(mock_zmapi_cls, {"monitors": [_monitor_data(3)]}, _ZMS_CONFIG)
+        m = client.monitor(3)
+        first = m.streaming_url()
+        assert m.snapshot_url() == "https://zm.example.com/zm/cgi-bin/nph-zms?mode=single&monitor=3"
+        assert m.streaming_url() == first == "https://zm.example.com/zm/cgi-bin/nph-zms?mode=jpeg&monitor=3"
+        assert api.get.call_count == 2  # monitors + one config lookup
+
+    @patch("pyzm.client.ZMAPI")
+    def test_authenticated_adds_current_token(self, mock_zmapi_cls):
+        client, api = _client_with(mock_zmapi_cls, {"monitors": [_monitor_data(3)]}, _ZMS_CONFIG)
+        api.auth.get_auth_string.return_value = "token=TOK"
+        m = client.monitor(3)
+        assert m.streaming_url(authenticated=True, maxfps=5) == \
+            "https://zm.example.com/zm/cgi-bin/nph-zms?mode=jpeg&monitor=3&maxfps=5&token=TOK"
+        assert "token" not in m.streaming_url()
+
+    @patch("pyzm.client.ZMAPI")
+    def test_auth_kwarg_still_passes_through_to_zms(self, mock_zmapi_cls):
+        client, _ = _client_with(mock_zmapi_cls, {"monitors": [_monitor_data(3)]}, _ZMS_CONFIG)
+        assert client.monitor(3).streaming_url(auth="HASH").endswith("&auth=HASH")
+
+    @patch("pyzm.client.ZMAPI")
+    def test_monitor_on_another_server(self, mock_zmapi_cls):
+        server = {"Server": {"Id": "2", "Name": "zm2", "Hostname": "zm2.lan", "Protocol": "https",
+                             "Port": "8443", "PathToZMS": "/cgi-bin/nph-zms"}}
+        client, _ = _client_with(mock_zmapi_cls, {"monitors": [_monitor_data(3, ServerId="2")]},
+                                 {"servers": [server]})
+        assert client.monitor(3).streaming_url() == "https://zm2.lan:8443/cgi-bin/nph-zms?mode=jpeg&monitor=3"
+
+    @patch("pyzm.client.ZMAPI")
+    def test_server_row_gaps_fall_back_like_zm(self, mock_zmapi_cls):
+        # No Hostname -> Name; no Protocol/Port -> the portal's; no PathToZMS -> ZM_PATH_ZMS;
+        # a default port for the scheme isn't written out.
+        server = {"Server": {"Id": "5", "Name": "zm5", "Hostname": "", "Protocol": "",
+                             "Port": "", "PathToZMS": ""}}
+        client, _ = _client_with(mock_zmapi_cls, {"monitors": [_monitor_data(3, ServerId="5")]},
+                                 {"servers": [server]}, _ZMS_CONFIG)
+        assert client.monitor(3).snapshot_url() == "https://zm5/zm/cgi-bin/nph-zms?mode=single&monitor=3"
+
+    @patch("pyzm.client.ZMAPI")
+    def test_unknown_server_uses_the_portal(self, mock_zmapi_cls, caplog):
+        import logging
+        client, _ = _client_with(mock_zmapi_cls, {"monitors": [_monitor_data(3, ServerId="9")]},
+                                 {"servers": []}, _ZMS_CONFIG)
+        with caplog.at_level(logging.WARNING, logger="pyzm"):
+            url = client.monitor(3).streaming_url()
+        assert url == "https://zm.example.com/zm/cgi-bin/nph-zms?mode=jpeg&monitor=3"
+        assert any("ServerId 9" in r.getMessage() for r in caplog.records)
+
+
+class TestHumanTimeWithoutDateparser:
+    """events(since=...) parsing when dateparser isn't installed (#89)."""
+
+    @staticmethod
+    def _parse(text):
+        import sys
+        from pyzm.client import _parse_human_time
+        with patch.dict(sys.modules, {"dateparser": None}):
+            return _parse_human_time(text)
+
+    @pytest.mark.parametrize("text,delta", [
+        ("now", {}), ("30 seconds ago", {"seconds": 30}), ("1 minute ago", {"minutes": 1}),
+        ("1 hour ago", {"hours": 1}), ("6 hours ago", {"hours": 6}), ("7 days ago", {"days": 7}),
+        ("1 week ago", {"weeks": 1}), ("2 Weeks Ago", {"weeks": 2}),
+    ])
+    def test_relative_times(self, text, delta):
+        from datetime import datetime, timedelta
+        got = datetime.strptime(self._parse(text), "%Y-%m-%d %H:%M:%S")
+        assert abs((datetime.now() - timedelta(**delta)) - got) < timedelta(seconds=5)
+
+    def test_months_and_years_are_calendar_steps(self):
+        from datetime import datetime
+        now = datetime.now()
+        months = datetime.strptime(self._parse("14 months ago"), "%Y-%m-%d %H:%M:%S")
+        total = now.year * 12 + now.month - 1 - 14
+        assert (months.year, months.month) == (total // 12, total % 12 + 1)
+        assert datetime.strptime(self._parse("2 years ago"), "%Y-%m-%d %H:%M:%S").year == now.year - 2
+
+    def test_today_is_now_and_yesterday_a_day_back(self):
+        # dateparser's meaning, so results don't depend on whether it's installed
+        from datetime import datetime, timedelta
+        for text, delta in (("today", timedelta()), ("yesterday", timedelta(days=1))):
+            got = datetime.strptime(self._parse(text), "%Y-%m-%d %H:%M:%S")
+            assert abs((datetime.now() - delta) - got) < timedelta(seconds=5), text
+
+    def test_iso_timestamps(self):
+        assert self._parse("2024-01-15 10:30:00") == "2024-01-15 10:30:00"
+        assert self._parse("2024-01-15T10:30") == "2024-01-15 10:30:00"
+        assert self._parse("2024-01-15") == "2024-01-15 00:00:00"
+
+    def test_anything_else_is_passed_through(self):
+        assert self._parse("last monday") == "last monday"
+
+    def test_matches_dateparser_where_both_apply(self):
+        from datetime import datetime, timedelta
+        dateparser = pytest.importorskip("dateparser")
+        for text in ("now", "today", "yesterday", "1 hour ago", "6 hours ago", "7 days ago",
+                     "1 week ago", "3 months ago", "2 years ago", "2024-01-15 10:30:00"):
+            ours = datetime.strptime(self._parse(text), "%Y-%m-%d %H:%M:%S")
+            theirs = dateparser.parse(text).replace(microsecond=0)
+            assert abs(ours - theirs) < timedelta(seconds=5), text
