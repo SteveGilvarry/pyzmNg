@@ -265,7 +265,7 @@ it while it's installed. You don't need to change anything. To switch to
 PyMySQL and free the space (about 70MB), install the ``[db]`` extra (or
 ``[ml]``/``[full]``, which include it), then remove the old driver if nothing
 else in that venv uses it. zmesNg's ``install.sh`` does this for you, after
-checking that PyMySQL can connect to your ZM database:
+checking that PyMySQL can connect to your ZM database. To do it by hand:
 
 .. code-block:: bash
 
