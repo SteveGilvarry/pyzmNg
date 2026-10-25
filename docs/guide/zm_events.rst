@@ -64,7 +64,8 @@ Event methods
    # Use path_override="..." to write to a different directory
 
 ``tag()``, ``path()``, and ``save_objdetect()`` (when no
-``path_override`` is given) require a direct database connection.  By
+``path_override`` is given) require a direct database connection and a
+MySQL driver (``pip install "pyzm[db]"``).  By
 default, credentials are read from ``/etc/zm/zm.conf``.  If that file is
 not readable, pass ``db_user``, ``db_password``, etc. when creating the
 client — see :doc:`zm_client` for details.
