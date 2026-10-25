@@ -83,6 +83,7 @@ class ZMAPI:
             api_url=self._api_url,
             user=config.user,
             password=password_plain,
+            timeout=config.timeout,
         )
         self._auth.login()
 
@@ -119,6 +120,30 @@ class ZMAPI:
     # ------------------------------------------------------------------
 
     def request(
+        self,
+        url: str,
+        method: str = "get",
+        params: dict[str, str] | None = None,
+        payload: dict[str, Any] | None = None,
+        reauth: bool = True,
+    ) -> Any:
+        """Make an HTTP request with automatic auth injection.
+
+        See :meth:`_request` for the arguments, return values and errors.
+        ``requests`` names the URL, auth token included, in HTTP, connection
+        and timeout errors.  Those are re-raised with the same type and the
+        URL masked and the original's traceback, outside the ``except`` block
+        so the original isn't attached as ``__context__``.  ``exc.request``
+        and ``exc.response`` still hold the real URL.
+        """
+        try:
+            return self._request(url, method, params, payload, reauth)
+        except (requests.HTTPError, requests.ConnectionError, requests.Timeout) as exc:
+            masked = type(exc)(redact_secrets(str(exc)), request=exc.request, response=exc.response)
+            masked = masked.with_traceback(exc.__traceback__)
+        raise masked
+
+    def _request(
         self,
         url: str,
         method: str = "get",

@@ -17,8 +17,13 @@ LICENSE = 'GPL'
 INSTALL_REQUIRES=[
     'requests>=2.18.4',
     'pydantic>=2.0.0',
+    ]
+
+# More time formats in events(since=...), such as "monday" or "January 5".
+# Without it pyzm handles "N <unit> ago" (with the common abbreviations),
+# "last week/month/year", now/today/yesterday and ISO timestamps.
+_DATES_REQUIRES=[
     'dateparser>=1.1.0',
-    'python-dotenv',
     ]
 
 # The ZM database driver: DB logging, ZM log levels, event tagging, event
@@ -74,9 +79,13 @@ setup(name = NAME,
           'Bug Tracker': 'https://github.com/ZoneMinder/pyzmNg/issues',
       },
       license = LICENSE,
+      classifiers=[
+          'License :: OSI Approved :: GNU General Public License v2 (GPLv2)',
+      ],
       install_requires=INSTALL_REQUIRES,
       extras_require={
           'db': _DB_REQUIRES,
+          'dates': _DATES_REQUIRES,
           'ml': _ML_REQUIRES + _DB_REQUIRES,
           'serve': _ML_REQUIRES + [
               'fastapi>=0.100',
@@ -92,7 +101,7 @@ setup(name = NAME,
               'st-clickable-images>=0.0.3',
               'PyYAML>=5.0',
           ],
-          'full': _ML_REQUIRES + _DB_REQUIRES + [
+          'full': _ML_REQUIRES + _DB_REQUIRES + _DATES_REQUIRES + [
               'fastapi>=0.100',
               'uvicorn>=0.20',
               'python-multipart>=0.0.5',

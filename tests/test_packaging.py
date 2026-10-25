@@ -29,6 +29,21 @@ def test_base_install_has_no_mysql_driver():
     assert not _names(_setup_kwargs()["install_requires"]) & {"mysql-connector-python", "pymysql"}
 
 
+def test_base_install_is_requests_and_pydantic():
+    assert _names(_setup_kwargs()["install_requires"]) == {"requests", "pydantic"}
+
+
+def test_dates_extra_installs_dateparser_and_full_includes_it():
+    extras = _setup_kwargs()["extras_require"]
+    assert _names(extras["dates"]) == {"dateparser"}
+    assert "dateparser" in _names(extras["full"])
+
+
+def test_license_classifier_names_gpl_v2():
+    assert "License :: OSI Approved :: GNU General Public License v2 (GPLv2)" in \
+        _setup_kwargs()["classifiers"]
+
+
 def test_db_extra_installs_pymysql():
     assert _names(_setup_kwargs()["extras_require"]["db"]) == {"pymysql"}
 
@@ -45,3 +60,41 @@ def test_remote_extras_leave_db_driver_out():
     extras = _setup_kwargs()["extras_require"]
     for name in ("serve", "train"):
         assert "pymysql" not in _names(extras[name]), name
+
+
+def _doc_extras_table() -> dict[str, set[str]]:
+    """{extra: packages} from the 'What each extra installs' table."""
+    import re
+    path = os.path.join(os.path.dirname(_SETUP), "docs", "guide", "installation.rst")
+    text = open(path).read().split("What each extra installs", 1)[1]
+    rows, current, cell = {}, None, 0
+    for line in text.splitlines():
+        start = re.match(r"\s*\* - (.*)", line)
+        item = re.match(r"\s{5}- (.*)", line)
+        if start:
+            current, cell = start.group(1).strip("`*[] ").replace("(base)", "base"), 0
+        elif item and current:
+            cell += 1
+            if cell == 1:
+                rows[current] = item.group(1)
+        elif current and cell == 1 and line.startswith("       ") and line.strip():
+            rows[current] += " " + line.strip()
+        if line.startswith("Some packages aren't"):
+            break
+    return {k: {p.strip().lower() for p in v.split(",")} for k, v in rows.items() if k != "Extra"}
+
+
+def test_installation_doc_lists_each_extras_packages():
+    """The docs table matches what pip installs for every extra but full."""
+    kwargs = _setup_kwargs()
+    table = _doc_extras_table()
+    assert table.pop("base") == _names(kwargs["install_requires"])
+    assert table.pop("full") == {"everything in the rows above"}
+    assert table == {name: _names(reqs) for name, reqs in kwargs["extras_require"].items()
+                     if name != "full"}
+
+
+def test_full_is_the_union_of_the_other_extras():
+    extras = {k: _names(v) for k, v in _setup_kwargs()["extras_require"].items()}
+    full = extras.pop("full")
+    assert full == set().union(*extras.values())

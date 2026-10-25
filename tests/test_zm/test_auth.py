@@ -530,3 +530,61 @@ class TestRedactSecrets:
         from pyzm.zm.auth import redact_secrets
         url = "http://zm/index.php?view=image&eid=1&fid=snapshot&monkey=1"
         assert redact_secrets(url) == url
+
+
+# ===================================================================
+# Timeouts and rejected credentials (#89)
+# ===================================================================
+
+class TestAuthManagerTimeoutsAndLoginErrors:
+    """Every request AuthManager makes is bounded; a 401 login is ZMLoginError."""
+
+    @staticmethod
+    def _resp(status, body=None):
+        import requests
+        resp = MagicMock()
+        resp.status_code = status
+        resp.json.return_value = body or {}
+        if status >= 400:
+            resp.raise_for_status.side_effect = requests.HTTPError(f"{status} error", response=resp)
+        return resp
+
+    def test_login_post_has_timeout(self):
+        session = _make_mock_session()
+        session.post.return_value = self._resp(200, _make_login_response_token())
+        AuthManager(session, "https://zm.example.com/zm/api", "u", "p", timeout=12).login()
+        assert session.post.call_args.kwargs["timeout"] == 12
+
+    def test_token_fallback_posts_have_timeout(self):
+        session = _make_mock_session()
+        session.post.side_effect = [self._resp(401), self._resp(200, _make_login_response_token())]
+        AuthManager(session, "https://zm.example.com/zm/api", "u", "p", token="old", timeout=7).login()
+        assert [c.kwargs["timeout"] for c in session.post.call_args_list] == [7, 7]
+
+    def test_version_fetch_has_timeout(self):
+        session = _make_mock_session()
+        session.get.return_value = self._resp(200, {"apiversion": "2.0", "version": "1.38.0"})
+        AuthManager(session, "https://zm.example.com/zm/api", None, None, timeout=9).login()
+        assert session.get.call_args.kwargs["timeout"] == 9
+
+    def test_rejected_credentials_raise_zm_login_error(self):
+        import requests
+        from pyzm.zm.auth import ZMLoginError
+        session = _make_mock_session()
+        rejected = self._resp(401)
+        session.post.return_value = rejected
+        # callers that catch requests.HTTPError still catch it
+        with pytest.raises(requests.HTTPError) as exc_info:
+            AuthManager(session, "https://zm.example.com/zm/api", "u", "s3cret").login()
+        assert exc_info.type is ZMLoginError
+        assert exc_info.value.response is rejected
+        assert "s3cret" not in str(exc_info.value)
+
+    def test_server_error_on_login_is_not_a_login_error(self):
+        import requests
+        from pyzm.zm.auth import ZMLoginError
+        session = _make_mock_session()
+        session.post.return_value = self._resp(500)
+        with pytest.raises(requests.HTTPError) as exc_info:
+            AuthManager(session, "https://zm.example.com/zm/api", "u", "p").login()
+        assert not isinstance(exc_info.value, ZMLoginError)

@@ -20,14 +20,18 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from typing import Any
-from urllib.parse import urlparse, urlencode
+from urllib.parse import quote, urlparse, urlencode
+
+import requests
 
 from pyzm.models.config import StreamConfig, ZMClientConfig
 from pyzm.models.zm import Event, Frame, Monitor, Notification, PTZCapabilities, Zone
 from pyzm.zm.api import ZMAPI
 from pyzm.zm.media import FrameExtractor
+from pyzm.zm.timeparse import parse_human_time as _parse_human_time
 
 logger = logging.getLogger("pyzm")
 
@@ -93,6 +97,9 @@ class ZMClient:
 
         # Caches
         self._monitors: list[Monitor] | None = None
+        self._zms_path: str | None = None
+        self._servers_by_id: dict[int, dict] | None = None
+        self._min_streaming_port: int | None = None
 
     # ------------------------------------------------------------------
     # Properties
@@ -210,6 +217,26 @@ class ZMClient:
         data = self._api.get(endpoint, params=params)
         events_list = data.get("events", []) if data else []
         return [Event.from_api_dict(e, client=self) for e in events_list]
+
+    def event_counts(self, interval: str, *, include_archived: bool = False) -> dict[int, int]:
+        """Count events per monitor that started within *interval*.
+
+        *interval* is a MySQL interval such as ``"1 hour"``, ``"1 day"`` or
+        ``"1 week"``.  Returns ``{monitor_id: count}`` from one API call;
+        monitors with no events are left out.  Archived events are excluded
+        unless *include_archived* is set.
+        """
+        if not _INTERVAL_RE.match(interval.strip()):
+            raise ValueError(f"Not a MySQL interval like '1 hour': {interval!r}")
+        endpoint = f"events/consoleEvents/{quote(interval.strip())}"
+        if not include_archived:
+            endpoint += "/Archived:0"
+        data = self._api.get(f"{endpoint}.json")
+        results = data.get("results") if data else None
+        # ZM sends an empty PHP array, [], when there are no events
+        if not isinstance(results, dict):
+            return {}
+        return {int(mid): int(count) for mid, count in results.items()}
 
     def event(self, event_id: int) -> Event:
         """Fetch a single event by ID."""
@@ -330,22 +357,107 @@ class ZMClient:
         self._api.put(f"monitors/{monitor_id}.json", data=data)
         self._monitors = None  # invalidate cache
 
-    def _zms_url(self, monitor_id: int, mode: str, **kwargs) -> str:
+    def _zms_url(
+        self, monitor_id: int, mode: str, *, server_id: int | None = None,
+        authenticated: bool = False, **kwargs,
+    ) -> str:
         """Build a ZMS CGI URL for a monitor.
 
-        Uses the ``ZM_PATH_ZMS`` config to locate the ZMS CGI endpoint and
-        deduplicates any overlapping path prefix with the portal URL.
+        When ZM has more than one server, a monitor's URL uses its own
+        server's ``Servers`` row (see :meth:`_server_base_url`).  Otherwise
+        the portal URL and ``ZM_PATH_ZMS`` are used, with any path prefix
+        they share deduplicated.  *authenticated* appends the current auth
+        string.
         """
-        zms_path = self.config("ZM_PATH_ZMS")["Value"]
+        params = {"mode": mode, "monitor": str(monitor_id), **kwargs}
+        query = urlencode(params)
+        if authenticated and (auth := self._api.auth.get_auth_string()):
+            query += f"&{auth}"
+
+        server = self._server(server_id) if server_id else None
+        if server is not None:
+            base = self._server_base_url(server, monitor_id)
+            return f"{base}{server.get('PathToZMS') or self._zms_config_path()}?{query}"
+
+        zms_path = self._zms_config_path()
         portal_url = self._api.portal_url
         portal_path = urlparse(portal_url).path.rstrip("/")
-
         # Deduplicate overlapping prefix (e.g. portal /zm + zms /zm/cgi-bin/...)
         if portal_path and zms_path.startswith(portal_path):
             zms_path = zms_path[len(portal_path):]
+        return f"{portal_url}{zms_path}?{query}"
 
-        params = {"mode": mode, "monitor": str(monitor_id), **kwargs}
-        return f"{portal_url}{zms_path}?{urlencode(params)}"
+    def _zms_config_path(self) -> str:
+        """``ZM_PATH_ZMS``, fetched once per client.
+
+        An API user without permission to view ZM's options can't read it.
+        Then the ZMS path of the ``Servers`` entries is used, which ZM's web
+        UI prefers over ``ZM_PATH_ZMS`` anyway, when they agree on one.
+        """
+        if self._zms_path is None:
+            try:
+                self._zms_path = self.config("ZM_PATH_ZMS")["Value"]
+            except (requests.HTTPError, ValueError) as exc:
+                paths = {s.get("PathToZMS") for s in self.servers() if s.get("PathToZMS")}
+                if len(paths) != 1:
+                    raise ValueError(
+                        f"Can't build a stream URL: ZM_PATH_ZMS not found ({exc}) and no "
+                        "Servers entry gives a ZMS path. The API user needs permission "
+                        "to view ZM's options."
+                    ) from None
+                self._zms_path = paths.pop()
+        return self._zms_path
+
+    def _server(self, server_id: int) -> dict | None:
+        """The ``Servers`` row for *server_id* when ZM has more than one
+        server, else ``None``.  Read once per client."""
+        if self._servers_by_id is None:
+            try:
+                rows = self.servers()
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                # Transient: use the portal this time and read them again next time
+                logger.warning("Can't read ZM servers (%s); using the portal URL", exc)
+                return None
+            except (requests.RequestException, ValueError) as exc:
+                logger.warning("Can't read ZM servers (%s); stream URLs use the portal URL", exc)
+                rows = []
+            # With one server the portal URL already reaches it, perhaps by a
+            # name (proxy, public DNS) the Servers row doesn't know.
+            self._servers_by_id = (
+                {int(s["Id"]): s for s in rows if s.get("Id")} if len(rows) > 1 else {}
+            )
+        server = self._servers_by_id.get(server_id)
+        if server is None and self._servers_by_id:
+            logger.warning("Monitor references unknown ServerId %d; using the portal URL", server_id)
+        return server
+
+    def _server_base_url(self, server: dict, monitor_id: int) -> str:
+        """``Protocol://Hostname[:Port]`` from a ``Servers`` row.
+
+        As ZM's web UI does: Name stands in for an empty Hostname, and
+        ``ZM_MIN_STREAMING_PORT``, when set, gives each monitor the port
+        ``ZM_MIN_STREAMING_PORT + monitor id``.  An empty Protocol takes the
+        portal's; an empty Port is left out (ZM's UI would use the
+        browser's).  The scheme's default port isn't written out.
+        """
+        protocol = server.get("Protocol") or urlparse(self._api.portal_url).scheme or "http"
+        host = server.get("Hostname") or server.get("Name")
+        min_port = self._min_streaming_port_value()
+        port = min_port + monitor_id if min_port else server.get("Port")
+        if port and str(port) != {"https": "443", "http": "80"}.get(protocol):
+            return f"{protocol}://{host}:{port}"
+        return f"{protocol}://{host}"
+
+    def _min_streaming_port_value(self) -> int:
+        """``ZM_MIN_STREAMING_PORT`` as an int (0 when unset), read once."""
+        if self._min_streaming_port is None:
+            try:
+                self._min_streaming_port = int(self.config("ZM_MIN_STREAMING_PORT").get("Value") or 0)
+            except (requests.ConnectionError, requests.Timeout):
+                return 0  # transient: read it again next time
+            except (requests.RequestException, ValueError):
+                self._min_streaming_port = 0
+        return self._min_streaming_port
 
     def _streaming_url_mjpeg(self, monitor_id: int, **kwargs) -> str:
         """Build an MJPEG streaming URL for a monitor."""
@@ -747,6 +859,9 @@ def _parse_zone_coords(coords_str: str) -> list[tuple[float, float]]:
     return points
 
 
+# ZM's consoleEvents accepts a MySQL interval: a number and a unit
+_INTERVAL_RE = re.compile(r"^[ \-.:0-9]+\s+[_a-z]+$", re.IGNORECASE)
+
 _PTZ_MOVE_MAP = {
     "up": "Up", "down": "Down", "left": "Left", "right": "Right",
     "up_left": "UpLeft", "up_right": "UpRight",
@@ -782,16 +897,3 @@ def _ptz_command_name(command: str, *, mode: str = "con", preset: int = 1) -> st
         f"Unknown PTZ command {command!r}; use one of: "
         f"{', '.join(sorted({*_PTZ_MOVE_MAP, *_PTZ_ZOOM_MAP, 'stop', 'home', 'preset'}))}"
     )
-
-
-def _parse_human_time(time_str: str) -> str | None:
-    """Parse human-readable time strings into ISO format.
-
-    Supports formats like ``"1 hour ago"``, ``"2024-01-15 10:30:00"``.
-    Falls back to returning the string as-is for ZM to parse.
-    """
-    import dateparser
-    dt = dateparser.parse(time_str)
-    if dt:
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
-    return time_str

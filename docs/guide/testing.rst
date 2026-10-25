@@ -223,7 +223,8 @@ The pieces, and what each one fails on:
   ``print()``.
 - ``scripts/gates/ratchet.sh`` counts known problems listed in
   ``.ratchet-counters`` (files over 400 lines, ``requests`` calls without a
-  timeout, ``assert isinstance(`` lines in tests) and fails when a count rises
+  timeout, made directly or through a ``Session``, ``assert isinstance(``
+  lines in tests) and fails when a count rises
   above ``.ratchet-baseline``. After a fix, run
   ``sh scripts/gates/ratchet.sh --update`` to lower the baseline. It refuses
   to raise a number; a raise is a hand edit with the reason in the commit
@@ -234,7 +235,11 @@ The pieces, and what each one fails on:
   old code, and when source changed and no test did.
 - ``scripts/gates/mutation_smoke.py`` breaks ``redact_secrets``, renames a
   ``DetectionResult`` wire key, and flips ``is_throttled``, and fails when the
-  tests for that module still pass.
+  tests for that module still pass. It runs those tests without writing
+  bytecode, so no ``.pyc`` of a mutant is left behind.
+- ``tests/test_packaging.py`` fails when the extras table in
+  ``docs/guide/installation.rst`` lists different packages from
+  ``setup.py``.
 - ``scripts/gates/pr-body-check.sh`` runs on pull requests. It fails when the
   body has no ``## Acceptance`` content, when a ``feat`` PR has no
   ``## Spec`` section, or when the PR edits ``CHANGELOG.md``.

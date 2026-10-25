@@ -15,6 +15,16 @@ commit hash behind it; the instruction gate checks the hash exists.
   NULL and fills them on zmc's first update. Treat NULL as 0 (aa7896f).
 - LastNotifiedAt can come back naive (ZM server local time) or with an
   offset. Compare against datetime.now(last.tzinfo) (657321d).
+- On ZM 1.37+, a monitor's Function column is stale: ZM keeps state in
+  Capturing, Analysing and Recording. Read and write those (8d6c6f8).
+- monitors/alarm status numbers are one higher on ZM 1.36.16 through
+  1.36.25 (zmu shifted its states; the API subtracted it again from
+  1.36.26). Verified per tag in ZM's MonitorsController (8d6c6f8).
+- events/consoleEvents returns {"results": []}, a list, when no monitor has
+  events in the interval, and HTTP 500 for a malformed interval (8d6c6f8).
+- requests puts the full URL, token included, in HTTPError and
+  ConnectionError messages. ZMAPI.request re-raises them redacted; don't
+  add a path that raises them raw (16796d9).
 
 ## ZoneMinder database
 

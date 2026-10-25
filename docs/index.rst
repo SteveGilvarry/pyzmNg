@@ -28,7 +28,7 @@ Quick example
                   user="admin", password="secret")
 
    for m in zm.monitors():
-       print(f"{m.name}: {m.function} ({m.width}x{m.height})")
+       print(f"{m.name}: {m.analysing}/{m.recording} ({m.width}x{m.height})")
 
    # Detect objects in a local image
    detector = Detector(models=["yolo11s"])

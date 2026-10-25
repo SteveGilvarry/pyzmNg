@@ -124,6 +124,14 @@ All environment variables are optional. They are read first and provide
 baseline values that can be overridden by ZM config files, the database,
 and the ``override`` dict.
 
+If ``python-dotenv`` is installed (no extra installs it), ``setup_zm_logging()``
+also loads a ``.env`` file first. When your code runs from a script file,
+dotenv looks for it starting in the directory pyzm is installed in and
+working up, so it finds a ``.env`` in the venv or a source checkout, not one
+next to your script. In an interactive session or ``python -c``, it starts
+from the current directory instead. Variables that are already set win over
+the file.
+
 .. list-table::
    :header-rows: 1
    :widths: 30 30 40

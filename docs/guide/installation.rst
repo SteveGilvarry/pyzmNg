@@ -42,7 +42,7 @@ Requirements
 ------------
 
 - Python 3.10 or newer
-- Pydantic >= 2.0
+- requests and Pydantic >= 2.0 (installed with pyzm)
 - OpenCV 4.13+ (``cv2``) -- required for ML detection features (ONNX YOLO models need 4.13+ for full operator support).
   Darknet models (``.weights`` + ``.cfg``, i.e. YOLOv4/YOLOv3) additionally require OpenCV **4.4 or newer but
   below 5.0**: OpenCV 5.0 removed the Darknet importer. PyPI now serves OpenCV 5 wheels, so install it as
@@ -51,6 +51,8 @@ Requirements
 - A running ZoneMinder instance (for API features)
 - A MySQL driver for the features that read the ZM database directly
   (``pyzm[db]``, also part of ``[ml]`` and ``[full]``). See `Database access`_.
+
+`What each extra installs`_ lists every package and what it's for.
 
 Path A: Install from PyPI
 --------------------------
@@ -86,6 +88,9 @@ installer):
    # ZM API client plus the database features (no ML):
    sudo /opt/zoneminder/venv/bin/pip install "pyzm[db]"
 
+   # Extras combine, e.g. ML detection plus more time formats in events(since=...):
+   sudo /opt/zoneminder/venv/bin/pip install "pyzm[ml,dates]"
+
    # ZM API client only (monitors, events, zones; no ML, no database):
    sudo /opt/zoneminder/venv/bin/pip install pyzm
 
@@ -108,6 +113,12 @@ OpenCV shim, and ownership in one step.
 
    # ML detection only:
    sudo ./scripts/setup_venv.sh --extras ml
+
+   # ML detection + training UI:
+   sudo ./scripts/setup_venv.sh --extras ml,train
+
+   # ZM API client plus the database features (no ML):
+   sudo ./scripts/setup_venv.sh --extras db
 
    # ZM API client only (monitors, events, zones — no ML):
    sudo ./scripts/setup_venv.sh
@@ -142,24 +153,58 @@ The script will:
 What each extra installs
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
+Extras combine, for example ``pip install "pyzm[ml,serve]"``. Each row lists
+every package that extra adds on top of the base install (pip also pulls in
+their own dependencies).
+
 .. list-table::
    :header-rows: 1
-   :widths: 15 85
+   :widths: 12 44 44
 
    * - Extra
-     - Additional packages
+     - Packages
+     - What it's for
    * - *(base)*
-     - requests, pydantic, dateparser, python-dotenv
+     - requests, pydantic
+     - The ZM API client: monitors, events, zones, PTZ, notifications,
+       config, run states, and ``setup_zm_logging()`` to file and syslog.
    * - ``[db]``
      - PyMySQL
+     - Features that read the ZM database directly. See `Database access`_.
+   * - ``[dates]``
+     - dateparser
+     - More time formats in ``events(since=..., until=...)``, such as
+       "monday" or "January 5". The base install handles the formats listed
+       in :doc:`zm_events`.
    * - ``[ml]``
      - numpy, Pillow, onnx, Shapely, portalocker, imutils, PyMySQL
+     - ML detection (``Detector``, ``detect_event()``), plus the ``[db]``
+       features that detection on a ZM host uses (tagging, ``objdetect.jpg``,
+       BirdNET audio). Needs OpenCV, which no extra installs.
    * - ``[serve]``
-     - ``[ml]`` deps except PyMySQL + fastapi, uvicorn, python-multipart, PyJWT, PyYAML
+     - numpy, Pillow, onnx, Shapely, portalocker, imutils, fastapi, uvicorn,
+       python-multipart, PyJWT, PyYAML
+     - The remote ML gateway (``python -m pyzm.serve``). No database driver:
+       the gateway doesn't talk to the ZM database. Needs OpenCV.
    * - ``[train]``
-     - ``[ml]`` deps except PyMySQL + ultralytics, streamlit, streamlit-drawable-canvas, st-clickable-images, PyYAML
+     - numpy, Pillow, onnx, Shapely, portalocker, imutils, ultralytics,
+       streamlit, streamlit-drawable-canvas, st-clickable-images, PyYAML
+     - The model training UI (``python -m pyzm.train``). No database driver.
    * - ``[full]``
-     - All of the above (``[db]`` + ``[ml]`` + ``[serve]`` + ``[train]``)
+     - Everything in the rows above
+     - Every extra at once.
+
+Some packages aren't in any extra. pyzm uses them when they're installed:
+
+- OpenCV (``cv2``): required for ``[ml]``, ``[serve]`` and ``[train]``; see
+  Requirements. ``[train]``'s ultralytics pulls in ``opencv-python`` from PyPI
+  itself, which can replace an OpenCV you built from source (see the note
+  below).
+- ``python-dotenv``: loads a ``.env`` file in ``setup_zm_logging()``. See
+  :doc:`logging`.
+- ``cryptography`` and ``PyNaCl``: MySQL 8 and MariaDB ed25519 logins
+  through PyMySQL. See `Database access`_.
+- The ML backends in `Optional dependencies`_.
 
 .. _db-access:
 
@@ -261,7 +306,14 @@ Upgrading
    git pull
    sudo ./scripts/setup_venv.sh --extras full   # same extras you used before
 
-**Upgrading from 2.5.4 or older:** ``mysql-connector-python`` is no longer a
+**Upgrading from 2.5.5 or older:** ``dateparser`` and ``python-dotenv``
+are no longer base dependencies. ``pip install --upgrade`` doesn't remove
+them, so ``events(since=...)`` and ``.env`` loading keep working as before.
+A fresh install, a rebuilt container or venv, or a lockfile-driven install
+(``pip-sync``, ``uv sync``, poetry) won't have them: add ``[dates]`` or
+``python-dotenv`` if you rely on them.
+
+``mysql-connector-python`` is no longer a
 base dependency, but pip doesn't remove it on upgrade, and pyzm keeps using
 it while it's installed. You don't need to change anything. To switch to
 PyMySQL and free the space (about 70MB), install the ``[db]`` extra (or

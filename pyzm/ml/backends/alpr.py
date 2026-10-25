@@ -32,6 +32,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("pyzm.ml")
 
+# Seconds to wait on an ALPR service, so a hung one can't hang detection.
+_ALPR_TIMEOUT = 15
+
 
 class AlprBackend(MLBackend):
     """ALPR backend with internal dispatch to PlateRecognizer, OpenALPR cloud,
@@ -161,7 +164,7 @@ class _PlateRecognizer(_AlprService):
 
                 response = requests.post(
                     platerec_url,
-                    timeout=15,
+                    timeout=_ALPR_TIMEOUT,
                     files=dict(upload=fp),
                     data=platerec_payload,
                     headers={"Authorization": "Token " + (self.apikey or "")},
@@ -218,7 +221,7 @@ class _PlateRecognizer(_AlprService):
             return {}
         try:
             headers = {"Authorization": "Token " + self.apikey} if self.apikey else {}
-            r = requests.get(self.url + "/statistics/", headers=headers)
+            r = requests.get(self.url + "/statistics/", headers=headers, timeout=_ALPR_TIMEOUT)
             r.raise_for_status()
             return r.json()
         except Exception as e:
@@ -254,7 +257,7 @@ class _OpenAlpr(_AlprService):
 
                 rurl = f"{self.url}?secret_key={self.apikey}{params}"
                 logger.debug("Trying OpenALPR with url: %s", redact_secrets(rurl))
-                response = requests.post(rurl, files={"image": fp})
+                response = requests.post(rurl, files={"image": fp}, timeout=_ALPR_TIMEOUT)
                 response.raise_for_status()
                 response = response.json()
                 logger.debug("OpenALPR JSON: %s", response)

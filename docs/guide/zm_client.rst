@@ -88,6 +88,30 @@ installations.
 Set ``verify_ssl=False`` if your ZM server uses a self-signed TLS
 certificate.
 
+``ZMClient()`` logs in when it's created. If ZM rejects the username or
+password, it raises ``ZMLoginError``. That's a subclass of
+``requests.HTTPError``, so code that already catches ``HTTPError`` still
+works. A server that can't be reached raises the usual ``requests`` errors.
+Every request to ZoneMinder, including the login, gives up after
+``timeout`` seconds.
+
+.. code-block:: python
+
+   import requests
+   from pyzm import ZMClient, ZMLoginError
+
+   try:
+       zm = ZMClient(api_url="https://zm.example.com/zm/api", user="admin", password="secret")
+   except ZMLoginError:
+       print("wrong username or password")
+   except requests.RequestException as exc:
+       print(f"can't reach ZoneMinder: {exc}")
+
+When an API call fails with an HTTP error, a connection error or a timeout,
+the message and traceback of the error pyzm raises have any token or
+credentials in the URL masked. The attached ``exc.request`` and
+``exc.response`` objects still hold the real URL, so don't log those.
+
 Database access
 ----------------
 

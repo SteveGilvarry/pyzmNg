@@ -5,9 +5,11 @@ that pass no timeout=. A hung server then hangs detection for the event.
     python3 scripts/gates/count_http_without_timeout.py           list them
     python3 scripts/gates/count_http_without_timeout.py --count   number only
 
-Matches requests.get/post/put/delete/head/request(...) and the same on any
-name bound by `import requests as <name>`. Exits 2 when it scanned too few
-files to have measured anything (M2).
+Matches requests.get/post/put/delete/head/request(...), the same on any
+name bound by `import requests as <name>`, and the same verbs on a session
+(a name or attribute ending in "session", e.g. self._session.post), since
+requests.Session has no default timeout either. Exits 2 when it scanned too
+few files to have measured anything (M2).
 """
 import ast
 import sys
@@ -15,6 +17,14 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 VERBS = {"get", "post", "put", "delete", "head", "patch", "request"}
+
+
+def _is_session(node):
+    # ponytail: matches by name, so it misses `requests.Session().get(...)` and a
+    # session bound to another name, and would count a dict named *session.
+    # Track Session() bindings with a scope-aware pass if that starts to matter.
+    name = node.id if isinstance(node, ast.Name) else getattr(node, "attr", "")
+    return name.lower().endswith("session")
 
 
 def offenders():
@@ -26,8 +36,9 @@ def offenders():
                                 for a in n.names if a.name == "requests" and a.asname}
         for n in ast.walk(tree):
             if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-                    and n.func.attr in VERBS and isinstance(n.func.value, ast.Name)
-                    and n.func.value.id in names
+                    and n.func.attr in VERBS
+                    and ((isinstance(n.func.value, ast.Name) and n.func.value.id in names)
+                         or _is_session(n.func.value))
                     and not any(k.arg == "timeout" for k in n.keywords)):
                 found.append(f"{path.relative_to(REPO)}:{n.lineno}")
     if scanned < 20:

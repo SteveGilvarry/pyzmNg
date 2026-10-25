@@ -15,6 +15,7 @@ from pyzm.models.config import (
     ZMClientConfig,
 )
 from pyzm.models.detection import BBox, Detection, DetectionResult
+from pyzm.zm.auth import ZMLoginError
 
 __all__ = [
     "ZMClient",
@@ -27,6 +28,7 @@ __all__ = [
     "Detection",
     "DetectionResult",
     "Notification",
+    "ZMLoginError",
 ]
 
 

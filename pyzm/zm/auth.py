@@ -39,6 +39,14 @@ def redact_secrets(text: object) -> str:
     return _SECRET_RE.sub(r"\1\2***", str(text))
 
 
+class ZMLoginError(requests.HTTPError):
+    """ZoneMinder rejected the credentials (HTTP 401 from ``host/login.json``).
+
+    A subclass of ``requests.HTTPError``, so code that catches that keeps
+    working.  An unreachable server raises the usual ``requests`` errors.
+    """
+
+
 def _version_tuple(version: str) -> tuple[int, ...]:
     """Convert a dotted version string to an int tuple for comparison."""
     return tuple(int(p) for p in version.split("."))
@@ -59,6 +67,8 @@ class AuthManager:
         ZM password (``None`` when auth is disabled).
     token:
         Optional pre-existing refresh/access token to try first.
+    timeout:
+        Seconds to wait on each login or version request.
     """
 
     def __init__(
@@ -68,8 +78,10 @@ class AuthManager:
         user: str | None,
         password: str | None,
         token: str | None = None,
+        timeout: float = 30,
     ) -> None:
         self._session = session
+        self._timeout = timeout
         self._api_url = api_url.rstrip("/")
         self._user = user
         self._password = password
@@ -97,7 +109,8 @@ class AuthManager:
         """Perform a full login against the ZM API.
 
         On success, populates version info and auth tokens/credentials.
-        Raises ``requests.HTTPError`` on failure.
+        Raises :class:`ZMLoginError` when ZM rejects the credentials and
+        ``requests.HTTPError`` on any other failure.
         """
         login_url = f"{self._api_url}/host/login.json"
 
@@ -114,15 +127,17 @@ class AuthManager:
             self._fetch_version()
             return
 
-        resp = self._session.post(login_url, data=data)
+        resp = self._session.post(login_url, data=data, timeout=self._timeout)
 
         # If token login returns 401, fall back to user/password
         if resp.status_code == 401 and self._initial_token and self._user and self._password:
             logger.debug("Token login returned 401; falling back to user/password")
             self._initial_token = None
             data = {"user": self._user, "pass": self._password}
-            resp = self._session.post(login_url, data=data)
+            resp = self._session.post(login_url, data=data, timeout=self._timeout)
 
+        if resp.status_code == 401:
+            raise ZMLoginError("ZoneMinder rejected the login (HTTP 401)", response=resp)
         resp.raise_for_status()
         self._process_login_response(resp.json())
 
@@ -202,7 +217,7 @@ class AuthManager:
     def _fetch_version(self) -> None:
         """Fetch API/ZM version without authentication."""
         url = f"{self._api_url}/host/getVersion.json"
-        resp = self._session.get(url)
+        resp = self._session.get(url, timeout=self._timeout)
         resp.raise_for_status()
         rj = resp.json()
         self.api_version = rj.get("apiversion")
