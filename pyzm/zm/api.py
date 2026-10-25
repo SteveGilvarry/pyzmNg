@@ -83,6 +83,7 @@ class ZMAPI:
             api_url=self._api_url,
             user=config.user,
             password=password_plain,
+            timeout=config.timeout,
         )
         self._auth.login()
 
@@ -172,6 +173,12 @@ class ZMAPI:
 
         except requests.HTTPError as exc:
             return self._handle_http_error(exc, url, method, params, payload, reauth)
+
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            # The message names the URL, auth token included.
+            raise type(exc)(
+                redact_secrets(str(exc)), request=exc.request, response=exc.response,
+            ) from None
 
         except ValueError as exc:
             return self._handle_value_error(exc, url, method, params, payload, reauth)
@@ -281,7 +288,10 @@ class ZMAPI:
             logger.debug("Got 404; raising BAD_IMAGE")
             raise ValueError("BAD_IMAGE")
 
-        raise exc
+        # requests puts the full URL, auth token included, in the message.
+        raise requests.HTTPError(
+            redact_secrets(str(exc)), response=exc.response, request=exc.request,
+        ) from None
 
     def _handle_value_error(
         self,

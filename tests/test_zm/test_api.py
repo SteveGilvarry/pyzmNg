@@ -365,6 +365,44 @@ class TestZMAPIRequest:
         assert "HASH123" not in logged
         assert "view=image&eid=1&auth=***" in logged
 
+    def test_http_error_message_masks_token(self):
+        """The raised error's message and traceback carry no token (#89)."""
+        import traceback
+        api, session, auth = self._make_api()
+        auth.apply_auth.side_effect = lambda url, params: (url, {**(params or {}), "token": "TOK123"})
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.raise_for_status.side_effect = requests.HTTPError(
+            "500 Server Error: Internal Server Error for url: "
+            "https://zm.example.com/zm/api/x.json?token=TOK123",
+            response=mock_resp,
+        )
+        session.get.return_value = mock_resp
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            api.request("https://zm.example.com/zm/api/x.json")
+
+        text = "".join(traceback.format_exception(exc_info.value))
+        assert "TOK123" not in text
+        assert "x.json?token=***" in str(exc_info.value)
+        assert exc_info.value.response is mock_resp
+
+    @pytest.mark.parametrize("error", [requests.ConnectionError, requests.ReadTimeout])
+    def test_connection_error_message_masks_token(self, error):
+        """Connection failures keep their type but lose the token (#89)."""
+        import traceback
+        api, session, auth = self._make_api()
+        auth.apply_auth.side_effect = lambda url, params: (url, {**(params or {}), "token": "TOK123"})
+        session.get.side_effect = error(
+            "HTTPConnectionPool(host='zm', port=80): Max retries exceeded with url: "
+            "/zm/api/monitors.json?token=TOK123")
+
+        with pytest.raises(error) as exc_info:
+            api.request("https://zm.example.com/zm/api/monitors.json")
+
+        assert "TOK123" not in "".join(traceback.format_exception(exc_info.value))
+        assert "monitors.json?token=***" in str(exc_info.value)
+
     def test_bad_image_zero_content_length(self):
         api, session, auth = self._make_api()
 
