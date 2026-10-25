@@ -26,6 +26,10 @@ empty strings and ``function`` is the one to use.
 ``server_id`` is the ``Servers`` row the monitor runs on in a multi-server
 setup, and ``None`` otherwise.
 
+``m.capturing`` is the monitor's configured capture setting. It's not
+``m.status.capturing`` (under `Monitor status`_), which is what the capture
+daemon reports right now.
+
 Monitor status
 ---------------
 
@@ -105,7 +109,7 @@ anyone who has it can open the stream, so don't log or share it. With token
 auth (ZM 1.34+) it carries an access token that expires, so build the URL
 when you need it rather than storing it. On older ZM with legacy auth it can
 carry your password in plain text and doesn't expire. Without
-``authenticated=True``, the URL has no credentials.
+``authenticated=True``, pyzm adds no credentials of its own.
 
 PTZ control
 ------------

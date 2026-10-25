@@ -27,11 +27,12 @@ _LAST_RE = re.compile(r"^last\s+(week|month|year)$", re.IGNORECASE)
 def parse_human_time(time_str: str) -> str:
     """Return *time_str* as a local ``YYYY-MM-DD HH:MM:SS``, or unchanged.
 
-    Uses dateparser when it's installed (``pyzm[dates]``).  Without it,
-    handles ``"N <unit> ago"`` (seconds to years, with dateparser's
-    abbreviations such as ``min``, ``hrs``, ``d``, and ``a``/``an`` for 1),
-    ``"last week/month/year"``, ``"now"``, ``"today"``, ``"yesterday"`` and
-    ISO timestamps, with dateparser's meaning for each.
+    Handles ``"N <unit> ago"`` (seconds to years, with abbreviations such as
+    ``min``, ``hrs``, ``d``, ``wks``, and ``a``/``an`` for 1), ``"last
+    week/month/year"``, ``"now"``, ``"today"``, ``"yesterday"`` and ISO
+    timestamps, meaning what dateparser means by them.  When dateparser is
+    installed (``pyzm[dates]``) it's tried first, which adds its other
+    formats.
 
     A string neither can parse is returned unchanged, with a warning: ZM
     ignores a filter it can't read, so the query isn't limited by it.
@@ -39,9 +40,10 @@ def parse_human_time(time_str: str) -> str:
     try:
         import dateparser
     except ImportError:
-        dt = _parse_common(time_str.strip())
+        dt = None
     else:
         dt = dateparser.parse(time_str)
+    dt = dt or _parse_common(time_str.strip())
     if dt:
         return dt.strftime(_ZM_FORMAT)
     logger.warning(

@@ -192,7 +192,7 @@ their own dependencies).
      - The model training UI (``python -m pyzm.train``). No database driver.
    * - ``[full]``
      - Everything in the rows above
-     - Every feature on one machine.
+     - Every extra at once.
 
 Some packages aren't in any extra. pyzm uses them when they're installed:
 

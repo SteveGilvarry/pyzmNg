@@ -436,9 +436,10 @@ class Monitor:
         protocol:
             Streaming protocol.  Currently only ``"mjpeg"`` is supported.
         authenticated:
-            Append the current auth token, so a client without a ZM session
-            can open the URL.  Tokens expire, so build the URL when you
-            need it rather than storing it.
+            Append the current auth string, so a client without a ZM session
+            can open the URL.  That makes the URL a credential: don't log or
+            share it.  A token (ZM 1.34+) expires, so build the URL when you
+            need it; legacy auth on older ZM can put the password in it.
         **kwargs:
             Extra query params forwarded to the URL (e.g. ``maxfps=5``,
             ``scale=50``).

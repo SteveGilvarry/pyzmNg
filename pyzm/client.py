@@ -399,6 +399,10 @@ class ZMClient:
         if self._servers_by_id is None:
             try:
                 rows = self.servers()
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                # Transient: use the portal this time and read them again next time
+                logger.warning("Can't read ZM servers (%s); using the portal URL", exc)
+                return None
             except (requests.RequestException, ValueError) as exc:
                 logger.warning("Can't read ZM servers (%s); stream URLs use the portal URL", exc)
                 rows = []
@@ -434,6 +438,8 @@ class ZMClient:
         if self._min_streaming_port is None:
             try:
                 self._min_streaming_port = int(self.config("ZM_MIN_STREAMING_PORT").get("Value") or 0)
+            except (requests.ConnectionError, requests.Timeout):
+                return 0  # transient: read it again next time
             except (requests.RequestException, ValueError):
                 self._min_streaming_port = 0
         return self._min_streaming_port

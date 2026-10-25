@@ -2539,6 +2539,28 @@ class TestHumanTimeWithoutDateparser:
             assert self._parse("monday") == "monday"
         assert any("ignores the filter" in r.getMessage() for r in caplog.records)
 
+    def test_fallback_forms_still_parse_with_dateparser_installed(self):
+        """dateparser doesn't take "2w ago" or "3 wks ago"; pyzm still does."""
+        from datetime import datetime, timedelta
+        from pyzm.client import _parse_human_time
+        pytest.importorskip("dateparser")
+        for text, delta in (("2w ago", timedelta(weeks=2)), ("3 wks ago", timedelta(weeks=3))):
+            got = datetime.strptime(_parse_human_time(text), "%Y-%m-%d %H:%M:%S")
+            assert abs((datetime.now() - delta) - got) < timedelta(seconds=5), text
+
+    @patch("pyzm.client.ZMAPI")
+    def test_transient_servers_failure_is_retried(self, mock_zmapi_cls):
+        import requests
+        two = [{"Server": {"Id": "1", "Name": "a", "Hostname": "a", "Protocol": "http", "Port": "", "PathToZMS": "/z"}},
+               {"Server": {"Id": "2", "Name": "b", "Hostname": "b", "Protocol": "http", "Port": "", "PathToZMS": "/z"}}]
+        client, api = _client_with(mock_zmapi_cls)
+        api.get.side_effect = [{"monitors": [_monitor_data(3, ServerId="2")]},
+                               requests.ConnectionError("down"), _ZMS_CONFIG,
+                               {"servers": two}, _NO_MIN]
+        m = client.monitor(3)
+        assert m.streaming_url().startswith("https://zm.example.com/")   # portal while servers.json is down
+        assert m.streaming_url() == "http://b/z?mode=jpeg&monitor=3"      # read again once it's back
+
     def test_matches_dateparser_where_both_apply(self):
         from datetime import datetime, timedelta
         dateparser = pytest.importorskip("dateparser")

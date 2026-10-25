@@ -33,8 +33,8 @@ Filters: ``event_id``, ``monitor_id``, ``since``, ``until``,
 
 Relative times use the clock and timezone of the machine running pyzm, and
 ZM compares them in its own timezone, so run both in the same timezone. With
-the ``[dates]`` extra installed, dateparser parses these instead (with the
-same meaning) and adds forms like "monday" or "January 5".
+the ``[dates]`` extra installed, dateparser is tried first. That adds forms
+like "monday" or "January 5", and the forms above keep their meaning.
 
 ZM ignores a time filter it can't read and returns events from any time. So
 when a string can't be parsed, pyzm logs a warning and passes it on
