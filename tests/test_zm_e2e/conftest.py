@@ -141,7 +141,7 @@ def zm_db_available() -> tuple[bool, str]:
         if conn is not None:
             conn.close()
             return True, ""
-        return False, "get_zm_db() returned None (missing mysql-connector-python?)"
+        return False, 'get_zm_db() returned None (no MySQL driver? pip install "pyzm[db]")'
     except PermissionError as exc:
         return False, (f"Permission denied: {exc.filename or exc} — "
                        "sudo /opt/zoneminder/venv/bin/pip install pytest && "

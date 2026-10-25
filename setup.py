@@ -18,8 +18,14 @@ INSTALL_REQUIRES=[
     'requests>=2.18.4',
     'pydantic>=2.0.0',
     'dateparser>=1.1.0',
-    'mysql-connector-python>=8.0.16',
     'python-dotenv',
+    ]
+
+# The ZM database driver: DB logging, ZM log levels, event tagging, event
+# paths and BirdNET audio. Not needed for API-only use. mysql-connector-python
+# is still used when it is installed (installs from pyzm <= 2.5 have it).
+_DB_REQUIRES=[
+    'PyMySQL>=1.0',
     ]
 
 _ML_REQUIRES=[
@@ -68,7 +74,8 @@ setup(name = NAME,
       license = LICENSE,
       install_requires=INSTALL_REQUIRES,
       extras_require={
-          'ml': _ML_REQUIRES,
+          'db': _DB_REQUIRES,
+          'ml': _ML_REQUIRES + _DB_REQUIRES,
           'serve': _ML_REQUIRES + [
               'fastapi>=0.100',
               'uvicorn>=0.20',
@@ -83,7 +90,7 @@ setup(name = NAME,
               'st-clickable-images>=0.0.3',
               'PyYAML>=5.0',
           ],
-          'full': _ML_REQUIRES + [
+          'full': _ML_REQUIRES + _DB_REQUIRES + [
               'fastapi>=0.100',
               'uvicorn>=0.20',
               'python-multipart>=0.0.5',

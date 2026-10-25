@@ -557,19 +557,17 @@ class TestAuthURLSeparator:
 class TestDBPortParsing:
     """Test that get_zm_db handles malformed port gracefully.
 
-    ``get_zm_db`` does ``import mysql.connector`` lazily inside the function,
-    so we patch ``mysql.connector.connect`` on the real module to intercept
-    connection attempts without touching the database.
+    The ``mock_connect`` fixture installs a fake mysql-connector, so no
+    database is touched.
     """
 
-    def test_normal_host_port(self):
+    def test_normal_host_port(self, mock_connect):
         from pyzm.zm.db import get_zm_db
 
-        mock_connect = MagicMock(return_value=MagicMock())
         with patch("pyzm.zm.db._read_zm_conf", return_value={
             "user": "zmuser", "password": "zmpass",
             "host": "localhost:3306", "database": "zm",
-        }), patch("mysql.connector.connect", mock_connect):
+        }):
             get_zm_db()
 
         mock_connect.assert_called_once()
@@ -577,27 +575,25 @@ class TestDBPortParsing:
         assert kw["host"] == "localhost"
         assert kw["port"] == 3306
 
-    def test_malformed_port_falls_back_to_3306(self):
+    def test_malformed_port_falls_back_to_3306(self, mock_connect):
         from pyzm.zm.db import get_zm_db
 
-        mock_connect = MagicMock(return_value=MagicMock())
         with patch("pyzm.zm.db._read_zm_conf", return_value={
             "user": "zmuser", "password": "zmpass",
             "host": "localhost:notaport", "database": "zm",
-        }), patch("mysql.connector.connect", mock_connect):
+        }):
             get_zm_db()
 
         kw = mock_connect.call_args.kwargs
         assert kw["port"] == 3306
 
-    def test_unix_socket(self):
+    def test_unix_socket(self, mock_connect):
         from pyzm.zm.db import get_zm_db
 
-        mock_connect = MagicMock(return_value=MagicMock())
         with patch("pyzm.zm.db._read_zm_conf", return_value={
             "user": "zmuser", "password": "zmpass",
             "host": "localhost:/var/run/mysqld/mysqld.sock", "database": "zm",
-        }), patch("mysql.connector.connect", mock_connect):
+        }):
             get_zm_db()
 
         kw = mock_connect.call_args.kwargs

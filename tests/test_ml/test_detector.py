@@ -929,6 +929,20 @@ class TestExtractEventAudio:
         assert lat == -1.0
         assert lon == -1.0
 
+    def test_queries_through_pymysql_connection(self, fake_pymysql):
+        """The event lookup runs on a PyMySQL connection (#85)."""
+        from pyzm.ml.detector import Detector
+
+        conn = fake_pymysql.connect.return_value
+        conn.cursor_obj.fetchone.return_value = None
+        mock_zm = MagicMock()
+        mock_zm._get_db.return_value = conn
+
+        Detector._extract_event_audio(mock_zm, 123)
+
+        assert conn.cursor_classes == [fake_pymysql.cursors.DictCursor]
+        assert conn.cursor_obj.execute.call_args.args[1] == (123,)
+
     def test_returns_none_when_db_query_fails(self):
         from pyzm.ml.detector import Detector
 

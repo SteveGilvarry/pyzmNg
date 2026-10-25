@@ -105,28 +105,13 @@ def _read_zm_conf_full(conf_path: str = "/etc/zm") -> dict[str, str]:
 def _read_zm_db_log_config(
     host: str, user: str, password: str, database: str,
 ) -> dict[str, str]:
-    """Read ZM log-level settings from the Config table via mysql.connector."""
-    try:
-        import mysql.connector
-    except ImportError:
+    """Read ZM log-level settings from the Config table, or ``{}``."""
+    from pyzm.zm.db import connect
+
+    conn = connect(host, user, password, database, quiet=True)
+    if conn is None:
         return {}
-
-    connect_kw: dict[str, Any] = {
-        "user": user, "password": password, "database": database,
-    }
-    db_host = host
-    if ":" in db_host:
-        db_host, suffix = db_host.split(":", 1)
-        if suffix.startswith("/"):
-            connect_kw["unix_socket"] = suffix
-        else:
-            connect_kw["host"] = db_host
-            connect_kw["port"] = int(suffix)
-    else:
-        connect_kw["host"] = db_host
-
     try:
-        conn = mysql.connector.connect(**connect_kw)
         cursor = conn.cursor()
         cursor.execute(
             "SELECT Name, Value FROM Config WHERE Name IN ("
@@ -136,13 +121,19 @@ def _read_zm_db_log_config(
         )
         result = {row[0]: row[1] for row in cursor.fetchall()}
         cursor.close()
-        conn.close()
         return result
     except Exception:
         return {}
+    finally:
+        conn.close()
 
 
 _ZM_OFF = -5  # ZM log level that disables a handler
+
+# After a failed DB connect, the DB handler drops records for this many
+# seconds before trying again, so a dead DB doesn't add a connect timeout
+# to every log call.
+_DB_RETRY_SECONDS = 30
 
 
 def _zm_config_to_handler_level(zm_level: int) -> int:
@@ -159,7 +150,7 @@ def _zm_config_to_handler_level(zm_level: int) -> int:
 
 
 class _ZMDBHandler(logging.Handler):
-    """Writes to ZM's ``Logs`` table via ``mysql.connector`` (no SQLAlchemy)."""
+    """Writes to ZM's ``Logs`` table through :func:`pyzm.zm.db.connect`."""
 
     def __init__(
         self,
@@ -181,30 +172,17 @@ class _ZMDBHandler(logging.Handler):
         self._database = database
         self._conn: Any = None
         self._reconnecting: bool = False
+        self._next_retry: float = 0.0
         self._connect()
 
-    def _connect_kwargs(self) -> dict[str, Any]:
-        kw: dict[str, Any] = {
-            "user": self._user,
-            "password": self._password,
-            "database": self._database,
-        }
-        host = self._host
-        if ":" in host:
-            host, suffix = host.split(":", 1)
-            if suffix.startswith("/"):
-                kw["unix_socket"] = suffix
-                return kw
-            kw["port"] = int(suffix)
-        kw["host"] = host
-        return kw
-
     def _connect(self) -> None:
-        try:
-            import mysql.connector
-            self._conn = mysql.connector.connect(**self._connect_kwargs())
-        except Exception:
-            self._conn = None
+        from pyzm.zm.db import connect
+
+        self._conn = connect(
+            self._host, self._user, self._password, self._database, quiet=True,
+        )
+        if self._conn is None:
+            self._next_retry = time.monotonic() + _DB_RETRY_SECONDS
 
     def emit(self, record: logging.LogRecord) -> None:
         # Prevent recursive logging during reconnect attempts
@@ -213,7 +191,7 @@ class _ZMDBHandler(logging.Handler):
         # Ping check (matches Perl's $dbh->ping() before every write)
         if self._conn is not None:
             try:
-                self._conn.ping(reconnect=False, attempts=1, delay=0)
+                self._conn.ping(reconnect=False)
             except Exception:
                 try:
                     self._conn.close()
@@ -221,6 +199,8 @@ class _ZMDBHandler(logging.Handler):
                     pass
                 self._conn = None
         if self._conn is None:
+            if time.monotonic() < self._next_retry:
+                return
             self._reconnecting = True
             try:
                 self._connect()
@@ -586,9 +566,13 @@ def setup_zm_logging(
             pass
 
     # DB handler
-    if config["log_level_db"] > _ZM_OFF and all(
+    from pyzm.zm.db import driver_available
+
+    db_wanted = config["log_level_db"] > _ZM_OFF and all(
         config.get(k) for k in ("dbhost", "dbuser", "dbpassword", "dbname")
-    ):
+    )
+    db_driver_missing = db_wanted and not driver_available()
+    if db_wanted and not db_driver_missing:
         dbh = _ZMDBHandler(
             component=process_name,
             server_id=config["server_id"],
@@ -666,6 +650,13 @@ def setup_zm_logging(
         _signal.signal(_signal.SIGUSR2, _sigusr2)
     except (OSError, ValueError):
         pass
+
+    if db_driver_missing:
+        logger.warning(
+            "ZM database logging is on, but no MySQL driver is installed: "
+            "nothing is written to the Logs table and log levels are not read "
+            'from the ZM database. Install it with: pip install "pyzm[db]"'
+        )
 
     return adapter
 
