@@ -30,9 +30,9 @@ With ZoneMinder
 
 On a ZoneMinder host, ``setup_zm_logging()`` reads ``zm.conf``, the DB
 ``Config`` table, and environment variables, then writes to ZM's log file,
-database, and syslog using the same format as Perl's ``Logger.pm``. The two
-database parts need a MySQL driver (``pyzm[db]``, see
-:ref:`db-access`):
+database, and syslog using the same format as Perl's ``Logger.pm``.
+Reading the ``Config`` table and writing to the ``Logs`` table need a MySQL
+driver (``pyzm[db]``, see :ref:`db-access`):
 
 .. code-block:: python
 
@@ -198,7 +198,7 @@ Up to four handlers are attached to the ``"pyzm"`` stdlib logger:
   database goes down, records are dropped and the handler tries to reconnect
   at most every 30 seconds.  The other handlers keep logging.  With no driver
   installed, the handler isn't attached and ``setup_zm_logging()`` logs one
-  warning saying so, with the ``pip install "pyzm[db]"`` command.
+  warning with the ``pip install "pyzm[db]"`` command.
 - **Syslog handler** — sends to syslog facility ``LOCAL1``
 - **Console handler** — enabled when ``dump_console=True``
 

@@ -86,7 +86,7 @@ installer):
    # ZM API client plus the database features (no ML):
    sudo /opt/zoneminder/venv/bin/pip install "pyzm[db]"
 
-   # ZM API client only (monitors, events, zones — no ML, no database):
+   # ZM API client only (monitors, events, zones; no ML, no database):
    sudo /opt/zoneminder/venv/bin/pip install pyzm
 
 Path B: Install from source
@@ -153,11 +153,11 @@ What each extra installs
    * - ``[db]``
      - PyMySQL
    * - ``[ml]``
-     - numpy, Pillow, onnx, Shapely, portalocker, imutils + ``[db]`` deps
+     - numpy, Pillow, onnx, Shapely, portalocker, imutils, PyMySQL
    * - ``[serve]``
-     - ``[ml]`` deps + fastapi, uvicorn, python-multipart, PyJWT, PyYAML
+     - ``[ml]`` deps except PyMySQL + fastapi, uvicorn, python-multipart, PyJWT, PyYAML
    * - ``[train]``
-     - ``[ml]`` deps + ultralytics, streamlit, streamlit-drawable-canvas, st-clickable-images, PyYAML
+     - ``[ml]`` deps except PyMySQL + ultralytics, streamlit, streamlit-drawable-canvas, st-clickable-images, PyYAML
    * - ``[full]``
      - All of the above (``[db]`` + ``[ml]`` + ``[serve]`` + ``[train]``)
 
@@ -178,8 +178,8 @@ API, so they need a MySQL driver:
 The ``[db]`` extra installs PyMySQL, a pure Python driver with no
 dependencies of its own. ``[ml]`` and ``[full]`` include it, so the zmesNg
 hooks have it. If ``mysql-connector-python`` is installed, pyzm uses that
-instead. That's the case on every install upgraded from pyzm 2.5.x or older,
-since it used to be a base dependency.
+instead. Most installs upgraded from pyzm 2.5.4 or older have it, since it
+used to be a base dependency.
 
 Without a driver, the API features work as before. ``ev.tag()``,
 ``ev.path()`` and BirdNET audio return the same "unavailable" result they
@@ -259,11 +259,13 @@ Upgrading
    git pull
    sudo ./scripts/setup_venv.sh --extras full   # same extras you used before
 
-**Upgrading from 2.5.x or older:** ``mysql-connector-python`` is no longer a
+**Upgrading from 2.5.4 or older:** ``mysql-connector-python`` is no longer a
 base dependency, but pip doesn't remove it on upgrade, and pyzm keeps using
 it while it's installed. You don't need to change anything. To switch to
 PyMySQL and free the space (about 70MB), install the ``[db]`` extra (or
-``[ml]``/``[full]``, which include it), then remove the old driver:
+``[ml]``/``[full]``, which include it), then remove the old driver if nothing
+else in that venv uses it. zmesNg's ``install.sh`` does this for you, after
+checking that PyMySQL can connect to your ZM database:
 
 .. code-block:: bash
 

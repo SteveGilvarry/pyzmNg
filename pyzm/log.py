@@ -653,9 +653,9 @@ def setup_zm_logging(
 
     if db_driver_missing:
         logger.warning(
-            "ZM database logging is on, but no MySQL driver is installed: "
-            "nothing is written to the Logs table and log levels are not read "
-            'from the ZM database. Install it with: pip install "pyzm[db]"'
+            "No MySQL driver installed: pyzm can't read ZM's log levels from "
+            "the database or write to its Logs table. "
+            'Install it with: pip install "pyzm[db]"'
         )
 
     return adapter

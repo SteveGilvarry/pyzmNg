@@ -7,8 +7,8 @@ few well-known locations are probed (handles containerized ZM, which keeps
 config under ``/config``).  Explicit credential overrides take precedence.
 
 The driver is optional (``pip install "pyzm[db]"`` installs PyMySQL).  When
-mysql-connector-python is installed, as it is on installs upgraded from
-pyzm 2.5 and older, it is used instead.
+mysql-connector-python is installed, as it is on most installs upgraded from
+pyzm 2.5.4 and older, it is used instead.
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ def _read_zm_conf(conf_path: str = _CONF_PATH) -> dict[str, str]:
 
 def _load_driver():
     """Return the MySQL driver module, or ``None`` when none is installed."""
-    # mysql-connector first: installs upgraded from pyzm <= 2.5 have it, and
+    # mysql-connector first: installs upgraded from pyzm <= 2.5.4 have it, and
     # keeping them on it means an upgrade never changes driver behavior.
     try:
         import mysql.connector

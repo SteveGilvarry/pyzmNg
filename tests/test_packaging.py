@@ -38,3 +38,10 @@ def test_on_box_extras_include_db_driver():
     extras = _setup_kwargs()["extras_require"]
     for name in ("ml", "full"):
         assert "pymysql" in _names(extras[name]), name
+
+
+def test_remote_extras_leave_db_driver_out():
+    """serve and train run on boxes that never touch the ZM database."""
+    extras = _setup_kwargs()["extras_require"]
+    for name in ("serve", "train"):
+        assert "pymysql" not in _names(extras[name]), name

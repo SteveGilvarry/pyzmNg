@@ -23,9 +23,11 @@ INSTALL_REQUIRES=[
 
 # The ZM database driver: DB logging, ZM log levels, event tagging, event
 # paths and BirdNET audio. Not needed for API-only use. mysql-connector-python
-# is still used when it is installed (installs from pyzm <= 2.5 have it).
+# is still used when it is installed (installs from pyzm <= 2.5.4 have it).
+# <2: the log handler calls ping(reconnect=False), and PyMySQL has deprecated
+# that argument; a major release may drop it.
 _DB_REQUIRES=[
-    'PyMySQL>=1.0',
+    'PyMySQL>=1.0,<2',
     ]
 
 _ML_REQUIRES=[

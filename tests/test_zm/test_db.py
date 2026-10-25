@@ -355,3 +355,20 @@ class TestDictCursor:
         dict_cursor(conn)
 
         conn.cursor.assert_called_once_with(dictionary=True)
+
+
+class TestRealDrivers:
+    """connect() against each real driver that's installed, so a kwarg the
+    driver rejects fails here instead of hiding behind "DB connect failed"."""
+
+    @pytest.mark.parametrize("module", ["pymysql", "mysql.connector"])
+    def test_refused_connection_reports_driver_error(self, module, caplog):
+        import logging
+        from pyzm.zm import db
+        driver = pytest.importorskip(module)
+
+        with patch.object(db, "_load_driver", return_value=driver), \
+                caplog.at_level(logging.WARNING, logger="pyzm.zm"):
+            assert db.connect("127.0.0.1:1", "u", "p", "zm") is None
+
+        assert any("2003" in r.getMessage() for r in caplog.records), caplog.text

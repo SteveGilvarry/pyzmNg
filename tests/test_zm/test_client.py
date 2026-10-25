@@ -2300,3 +2300,14 @@ class TestDBWithPyMySQL:
         }
 
         assert self._client(mock_zmapi_cls, conn)._event_path(42) is None
+
+    @patch("pyzm.client.ZMAPI")
+    def test_event_path_null_date_returns_none(self, mock_zmapi_cls):
+        """mysql-connector returns a MySQL zero date as None."""
+        conn = MagicMock()
+        conn.cursor.return_value.fetchone.return_value = {
+            "MonitorId": 3, "StartDateTime": None,
+            "StorageId": 1, "StoragePath": "/var/cache/zoneminder/events", "Scheme": "Medium",
+        }
+
+        assert self._client(mock_zmapi_cls, conn)._event_path(42) is None

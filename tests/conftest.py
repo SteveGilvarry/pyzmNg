@@ -181,7 +181,8 @@ class FakePyMySQLConnection:
         return self.cursor_obj
 
     def ping(self, reconnect=False):
-        pass
+        if self.closed:
+            raise sys.modules["pymysql"].Error("Already closed")
 
     def commit(self):
         pass
