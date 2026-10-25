@@ -65,10 +65,12 @@ Event methods
 
 ``tag()``, ``path()``, and ``save_objdetect()`` (when no
 ``path_override`` is given) require a direct database connection and a
-MySQL driver (``pip install "pyzm[db]"``).  By
-default, credentials are read from ``/etc/zm/zm.conf``.  If that file is
-not readable, pass ``db_user``, ``db_password``, etc. when creating the
-client — see :doc:`zm_client` for details.
+MySQL driver (``pip install "pyzm[db]"``).  By default, credentials are
+read from ``zm.conf``, which pyzm finds through the client's ``conf_path``,
+the ``PYZM_CONFPATH`` env var, or in ``/etc/zm``, ``/config`` or
+``/etc/zoneminder``.  If it isn't readable, pass ``db_user``,
+``db_password``, etc. when creating the client.  See :doc:`zm_client` for
+details.
 
    # Extract frames as numpy arrays (requires pyzm[ml])
    frames, dims = ev.extract_frames(stream_config=StreamConfig(resize=800))
