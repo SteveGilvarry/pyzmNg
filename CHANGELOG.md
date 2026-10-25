@@ -3,6 +3,49 @@
 All notable changes to this project will be documented in this file.
 
 
+## [2.5.5] - 2026-10-25
+
+### Bug Fixes
+
+- address review of the optional driver change ([1d5e320](https://github.com/ZoneMinder/pyzmNg/commit/1d5e320237bbae844e5a798af13ffdf39b06daac))
+- keep ML e2e tests out of Tier-1 ([2c4558b](https://github.com/ZoneMinder/pyzmNg/commit/2c4558b959b383e3176bbee0590176112649673d))
+- fix(ml): prevent object labels from clipping at top and right image b… in [#73](https://github.com/ZoneMinder/pyzmNg/pull/73) ([52e4c0a](https://github.com/ZoneMinder/pyzmNg/commit/52e4c0ac44de2f5fae39e1775a0ec443ab415b18))
+- option 1 for an existing tag is a new version ([75a68dd](https://github.com/ZoneMinder/pyzmNg/commit/75a68ddf71c9d306d80c84567dfde10475aacb71))
+
+### CI/CD
+
+- run the gate, proven red, mutation smoke, PR check, and ES contract ([7e3b0d7](https://github.com/ZoneMinder/pyzmNg/commit/7e3b0d7d124e26b6d5e5ae29e094ce0a7bf406a7))
+
+### Documentation
+
+- zm.conf is auto-discovered, not only read from /etc/zm ([4991297](https://github.com/ZoneMinder/pyzmNg/commit/4991297b66dd4fa93c1927d5e72a32d8d24dd76d))
+- tighten the DB driver docs and add pyzm.zm.db to the API reference ([42d99a4](https://github.com/ZoneMinder/pyzmNg/commit/42d99a4d9e2b759cc3cca87aae3c367bd57ca4c3))
+- list the db extra in setup_venv.sh's usage ([4ed01aa](https://github.com/ZoneMinder/pyzmNg/commit/4ed01aae0a0bef339325b5db77fa54ff5028ac6e))
+- separate install.sh's driver removal from the manual steps ([8a8ee5a](https://github.com/ZoneMinder/pyzmNg/commit/8a8ee5ac7d84798956683ed9c861aaaaedd8592d))
+- record PyMySQL differences in the domain playbook ([db7e164](https://github.com/ZoneMinder/pyzmNg/commit/db7e164dcbee5a3255271b29d957828c13c68f49))
+- describe the db extra, driver choice and logging without a DB ([f59d6e3](https://github.com/ZoneMinder/pyzmNg/commit/f59d6e3a85fe49053e92712f6690d493f208aadb))
+- say up front when zmesNg users need the pyzm install page ([f4a1ff1](https://github.com/ZoneMinder/pyzmNg/commit/f4a1ff1955180e3f00575b56c697b19048ddfcd3))
+- make gate takes about 10 seconds ([d4af967](https://github.com/ZoneMinder/pyzmNg/commit/d4af9677e968a550774d3875ebfd4ae805c6c1ca))
+
+### Features
+
+- make the MySQL driver optional and add PyMySQL ([881dd5c](https://github.com/ZoneMinder/pyzmNg/commit/881dd5c17827bd53f368c0fb65c012d768426920))
+
+### Miscellaneous
+
+- bump version to v2.5.5 ([4434fdd](https://github.com/ZoneMinder/pyzmNg/commit/4434fdde9625601c93a7417370e4ff0c85a50595))
+- print skip reasons in make gate ([1b8d58d](https://github.com/ZoneMinder/pyzmNg/commit/1b8d58dbf9eb972d888aa4a763d26d234fe0804a))
+- run the ratchet in make gate and add a pre-commit hook ([5526637](https://github.com/ZoneMinder/pyzmNg/commit/55266376060e592fa9ebee9693fc40fb63ce965b))
+- add the PR body check and a PR template ([c7c24e3](https://github.com/ZoneMinder/pyzmNg/commit/c7c24e3afc893c4297f7a10c9db6fe8b34b244bc))
+- add a mutation smoke for redaction, the wire dict, and throttling ([c229ed2](https://github.com/ZoneMinder/pyzmNg/commit/c229ed271b7d7fa3c34889867589700ccfbe3fff))
+- add proven red, running a branch's tests against the old code ([950df17](https://github.com/ZoneMinder/pyzmNg/commit/950df173d7c93cc19db05864455d20ee925cddb5))
+- add the count ratchet, seeded with today's violations ([7485c7a](https://github.com/ZoneMinder/pyzmNg/commit/7485c7a1669177af78480d82940dd6085923117a))
+- move agent rules to gap-trap instruction files with a gate ([f496b7b](https://github.com/ZoneMinder/pyzmNg/commit/f496b7ba4f0888c5364257ecb9c12544cd92ba54))
+
+### Testing
+
+- assert the full connect call in the host:port variant ([64ebaf5](https://github.com/ZoneMinder/pyzmNg/commit/64ebaf59ea521c0c92594b578d70fceb627be765))
+
 ## [2.5.4] - 2026-10-03
 
 ### Bug Fixes
@@ -16,6 +59,10 @@ All notable changes to this project will be documented in this file.
 - is_throttled handles timezone-aware LastNotifiedAt ([657321d](https://github.com/ZoneMinder/pyzmNg/commit/657321d6c01b5a256d3ae7e79df98d098230562a))
 - write past-detection file atomically ([46dd7e0](https://github.com/ZoneMinder/pyzmNg/commit/46dd7e08d097abe07b1e075b2909f0e669a0a735))
 - let GatewayUnreachable escape multi-frame detection ([69ea978](https://github.com/ZoneMinder/pyzmNg/commit/69ea978cb0c7a92cd5083920ed2e7f721195c2ba))
+
+### Documentation
+
+- update CHANGELOG for v2.5.4 ([9348874](https://github.com/ZoneMinder/pyzmNg/commit/93488742b66c74ed8f2920e057a3dc1fedce1c64))
 
 ### Miscellaneous
 
