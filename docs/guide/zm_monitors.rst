@@ -7,13 +7,24 @@ Listing monitors
 .. code-block:: python
 
    for m in zm.monitors():
-       print(f"Monitor {m.id}: {m.name} ({m.function}) {m.width}x{m.height}")
+       print(f"Monitor {m.id}: {m.name} ({m.analysing}/{m.recording}) {m.width}x{m.height}")
 
    # Single monitor
    m = zm.monitor(1)
 
 ``monitors()`` returns ``list[Monitor]``. Results are cached after the first
 call; pass ``force_reload=True`` to refresh.
+
+What a monitor does is in three fields on ZM 1.37 and newer:
+``capturing`` (``"None"``, ``"Ondemand"``, ``"Always"``), ``analysing``
+(``"None"``, ``"Always"``) and ``recording`` (``"None"``, ``"OnMotion"``,
+``"Always"``). ``function`` is the older ``Function`` column (``"Modect"``,
+``"Record"`` and so on). ZM 1.37+ no longer keeps it current, so on those
+versions read the three fields instead. On older ZM the three fields are
+empty strings and ``function`` is the one to use.
+
+``server_id`` is the ``Servers`` row the monitor runs on in a multi-server
+setup, and ``None`` otherwise.
 
 Monitor status
 ---------------
@@ -39,9 +50,12 @@ Monitor control
    # Alarm control
    m.arm()                              # trigger alarm
    m.disarm()                           # cancel alarm
-   status = m.alarm_status()            # check alarm state
+   m.alarm_state()                      # "idle", "prealarm", "alarm", "alert", "tape" or "unknown"
+   m.alarm_status()                     # the raw API response, e.g. {"status": 0, "output": 0}
 
-   # Update monitor settings
+   # Update monitor settings (ZM 1.37+)
+   m.update(Analysing="Always", Recording="OnMotion")
+   # Older ZM:
    m.update(Function="Modect", Enabled="1")
 
    # Daemon status
@@ -62,8 +76,25 @@ Streaming & snapshot URLs
    url = m.snapshot_url()                            # mode=single
    url = m.snapshot_url(scale=50)
 
-Both URLs are built from the portal URL and ``ZM_PATH_ZMS`` config, with
-automatic path deduplication (e.g. ``/zm`` won't be doubled).
+``alarm_state()`` turns the status number into a name, including on ZM
+1.36.16 through 1.36.25, where the API reports every state one higher than
+other versions do. (``SharedMemory.alarm_state()`` in :doc:`zm_system` is a
+different thing: it reads the monitor's shared memory on the ZM host.)
+
+.. code-block:: python
+
+   # For a client with no ZM session, such as a browser or media player
+   url = m.streaming_url(authenticated=True)
+
+Both URLs are built from the portal URL and ``ZM_PATH_ZMS``, with automatic
+path deduplication (e.g. ``/zm`` won't be doubled). ``ZM_PATH_ZMS`` is read
+once per client. On a multi-server setup, a monitor on another server gets
+that server's address from its ``Servers`` row (protocol, hostname, port and
+ZMS path), the way ZM's own web UI builds it.
+
+``authenticated=True`` appends the current auth token, so whatever opens the
+URL doesn't need its own ZM login. Tokens expire, so build the URL when you
+need it rather than storing it. Without it, the URL is the same as before.
 
 PTZ control
 ------------

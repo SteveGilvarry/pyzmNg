@@ -20,6 +20,26 @@ Querying events
 Filters: ``event_id``, ``monitor_id``, ``since``, ``until``,
 ``min_alarm_frames``, ``object_only``, ``limit``.
 
+``since`` and ``until`` take "N seconds/minutes/hours/days/weeks/months/years
+ago", "now", "today", "yesterday", or an ISO timestamp such as
+``"2024-01-15 10:30:00"``, all in the ZM host's local time. With the
+``[dates]`` extra installed, dateparser handles them instead and adds
+natural-language forms like "last monday". A string neither can parse is
+passed to ZM as is.
+
+Counting events
+----------------
+
+.. code-block:: python
+
+   counts = zm.event_counts("1 day")        # {2: 11, 4: 3, 6: 3}
+   counts.get(5, 0)                         # monitors with no events aren't in the dict
+
+``event_counts()`` returns how many events started in each monitor within the
+interval, from one API call. The interval is a number and a MySQL unit:
+``"1 hour"``, ``"1 day"``, ``"1 week"``, ``"1 month"``. Archived events are
+left out unless you pass ``include_archived=True``.
+
 ``object_only=True`` filters to events that have been tagged by ML
 detection (events whose Notes field matches ``"detected"``).
 

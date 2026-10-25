@@ -52,6 +52,8 @@ Requirements
 - A MySQL driver for the features that read the ZM database directly
   (``pyzm[db]``, also part of ``[ml]`` and ``[full]``). See `Database access`_.
 
+`What each extra installs`_ lists every package and what it's for.
+
 Path A: Install from PyPI
 --------------------------
 
@@ -85,6 +87,9 @@ installer):
 
    # ZM API client plus the database features (no ML):
    sudo /opt/zoneminder/venv/bin/pip install "pyzm[db]"
+
+   # Add natural-language times like "last monday" to events(since=...):
+   sudo /opt/zoneminder/venv/bin/pip install "pyzm[dates]"
 
    # ZM API client only (monitors, events, zones; no ML, no database):
    sudo /opt/zoneminder/venv/bin/pip install pyzm
@@ -142,24 +147,55 @@ The script will:
 What each extra installs
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
+Extras combine, for example ``pip install "pyzm[ml,serve]"``. Each row lists
+every package that extra adds on top of the base install (pip also pulls in
+their own dependencies).
+
 .. list-table::
    :header-rows: 1
-   :widths: 15 85
+   :widths: 12 44 44
 
    * - Extra
-     - Additional packages
+     - Packages
+     - What it's for
    * - *(base)*
-     - requests, pydantic, dateparser, python-dotenv
+     - requests, pydantic
+     - The ZM API client: monitors, events, zones, PTZ, notifications,
+       config, run states, and ``setup_zm_logging()`` to file and syslog.
    * - ``[db]``
      - PyMySQL
+     - Features that read the ZM database directly. See `Database access`_.
+   * - ``[dates]``
+     - dateparser
+     - Natural-language times in ``events(since=..., until=...)``, such as
+       "last monday". The base install handles "N minutes/hours/days ago" and
+       similar, "now", "today", "yesterday" and ISO timestamps.
    * - ``[ml]``
      - numpy, Pillow, onnx, Shapely, portalocker, imutils, PyMySQL
+     - ML detection (``Detector``, ``detect_event()``), plus the ``[db]``
+       features that detection on a ZM host uses (tagging, ``objdetect.jpg``,
+       BirdNET audio). Needs OpenCV, which no extra installs.
    * - ``[serve]``
-     - ``[ml]`` deps except PyMySQL + fastapi, uvicorn, python-multipart, PyJWT, PyYAML
+     - numpy, Pillow, onnx, Shapely, portalocker, imutils, fastapi, uvicorn,
+       python-multipart, PyJWT, PyYAML
+     - The remote ML gateway (``python -m pyzm.serve``). No database driver:
+       the gateway doesn't talk to the ZM database. Needs OpenCV.
    * - ``[train]``
-     - ``[ml]`` deps except PyMySQL + ultralytics, streamlit, streamlit-drawable-canvas, st-clickable-images, PyYAML
+     - numpy, Pillow, onnx, Shapely, portalocker, imutils, ultralytics,
+       streamlit, streamlit-drawable-canvas, st-clickable-images, PyYAML
+     - The model training UI (``python -m pyzm.train``). No database driver.
    * - ``[full]``
-     - All of the above (``[db]`` + ``[ml]`` + ``[serve]`` + ``[train]``)
+     - Everything in the rows above
+     - All of it on one box.
+
+Some packages aren't in any extra. pyzm uses them when they're installed:
+
+- OpenCV (``cv2``): required for ``[ml]`` and ``[serve]``; see Requirements.
+- ``python-dotenv``: loads a ``.env`` file in ``setup_zm_logging()``. See
+  :doc:`logging`.
+- ``cryptography`` and ``PyNaCl``: MySQL 8 and MariaDB ed25519 logins
+  through PyMySQL. See `Database access`_.
+- The ML backends in `Optional dependencies`_.
 
 .. _db-access:
 
@@ -261,7 +297,12 @@ Upgrading
    git pull
    sudo ./scripts/setup_venv.sh --extras full   # same extras you used before
 
-**Upgrading from 2.5.4 or older:** ``mysql-connector-python`` is no longer a
+**Upgrading from 2.5.4 or older:** ``dateparser`` and ``python-dotenv``
+are no longer base dependencies. pip doesn't remove them on upgrade, so
+``events(since=...)`` and ``.env`` loading keep working exactly as before.
+On a fresh install, add ``[dates]`` or ``python-dotenv`` if you rely on them.
+
+``mysql-connector-python`` is no longer a
 base dependency, but pip doesn't remove it on upgrade, and pyzm keeps using
 it while it's installed. You don't need to change anything. To switch to
 PyMySQL and free the space (about 70MB), install the ``[db]`` extra (or

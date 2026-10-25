@@ -22,6 +22,11 @@ Logging utilities for pyzm. ``setup_zm_logging()`` provides ZM-native logging
     :members: setup_zm_logging, ZMLogAdapter
     :undoc-members:
 
+Errors
+-------
+
+.. autoclass:: pyzm.zm.auth.ZMLoginError
+
 ZoneMinder database
 --------------------
 

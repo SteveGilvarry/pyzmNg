@@ -16,6 +16,8 @@
 #       For ML detection (Detector), add the 'ml' extra.
 #       The 'serve' and 'train' extras auto-include ML dependencies, but
 #       not the 'db' extra.
+#       The 'dates' extra adds natural-language times to events(since=...).
+#       docs/guide/installation.rst lists every package in each extra.
 #
 # This script:
 #   1. Installs the python3-venv OS package if missing
