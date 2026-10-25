@@ -3,6 +3,33 @@
 All notable changes to this project will be documented in this file.
 
 
+## [2.5.6] - 2026-10-25
+
+### Bug Fixes
+
+- ALPR request timeouts, masked errors keep their frames, ZMS path fallback ([9248983](https://github.com/ZoneMinder/pyzmNg/commit/9248983313705d31c35c2d841acb7a6ce5e7e1bf))
+- run mutation tests without writing bytecode ([c9c0b1f](https://github.com/ZoneMinder/pyzmNg/commit/c9c0b1fa7525be2a5259898d759a502dea6aec78))
+- keep fallback time formats with dateparser, retry transient server reads ([ab54ac8](https://github.com/ZoneMinder/pyzmNg/commit/ab54ac8d3398203d2889d1a6f0d35ba29268886c))
+- address review of the thin-client change ([db654c6](https://github.com/ZoneMinder/pyzmNg/commit/db654c6775e7fd458aa3659dbec2d950471b6de5))
+- bound login requests, mask tokens in errors, add ZMLoginError ([16796d9](https://github.com/ZoneMinder/pyzmNg/commit/16796d98763a56561f4eed24c3b6f793c0cbe877))
+
+### Documentation
+
+- record ZM API quirks found while adding the client features ([f7b3d58](https://github.com/ZoneMinder/pyzmNg/commit/f7b3d580cc64437270eaa6fb7efbed5d11dde92e))
+- list every package per extra and document the new client features ([9a7d657](https://github.com/ZoneMinder/pyzmNg/commit/9a7d657dfe5875dbe9805b6c6dfde80c4036496e))
+
+### Features
+
+- slimmer base install, ZM 1.37+ monitor state, event counts, stream URL fixes ([8d6c6f8](https://github.com/ZoneMinder/pyzmNg/commit/8d6c6f8a52093432206bc4d8dea6bca2bdbc81cb))
+
+### Miscellaneous
+
+- bump version to v2.5.6 ([b216ad7](https://github.com/ZoneMinder/pyzmNg/commit/b216ad7bc2509255a3a672c409e75846c455e42c))
+
+### Testing
+
+- assert the timeout itself, not the new constant ([ba64626](https://github.com/ZoneMinder/pyzmNg/commit/ba646263ad42547909c3f7bf815944d2589b7968))
+
 ## [2.5.5] - 2026-10-25
 
 ### Bug Fixes
@@ -18,6 +45,7 @@ All notable changes to this project will be documented in this file.
 
 ### Documentation
 
+- update CHANGELOG for v2.5.5 ([d259e7f](https://github.com/ZoneMinder/pyzmNg/commit/d259e7f9954d08725a7b16545299f3e1e75d16a2))
 - zm.conf is auto-discovered, not only read from /etc/zm ([4991297](https://github.com/ZoneMinder/pyzmNg/commit/4991297b66dd4fa93c1927d5e72a32d8d24dd76d))
 - tighten the DB driver docs and add pyzm.zm.db to the API reference ([42d99a4](https://github.com/ZoneMinder/pyzmNg/commit/42d99a4d9e2b759cc3cca87aae3c367bd57ca4c3))
 - list the db extra in setup_venv.sh's usage ([4ed01aa](https://github.com/ZoneMinder/pyzmNg/commit/4ed01aae0a0bef339325b5db77fa54ff5028ac6e))
