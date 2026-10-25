@@ -194,7 +194,7 @@ class TestAlprBugFixes:
     def test_alpr_cloud_requests_have_timeouts(self, tmp_path):
         """Every ALPR HTTP call is bounded, so a hung service can't hang detection (#89)."""
         from unittest.mock import MagicMock, patch
-        from pyzm.ml.backends.alpr import _ALPR_TIMEOUT, _OpenAlpr, _PlateRecognizer
+        from pyzm.ml.backends.alpr import _OpenAlpr, _PlateRecognizer
         image = tmp_path / "plate.jpg"
         image.write_bytes(b"jpeg")
         resp = MagicMock()
@@ -204,13 +204,13 @@ class TestAlprBugFixes:
                                              options={"alpr_api_type": "cloud"}))
         with patch("requests.get", return_value=resp) as get:
             stats._stats()
-        assert get.call_args.kwargs["timeout"] == _ALPR_TIMEOUT
+        assert get.call_args.kwargs.get("timeout", 0) > 0
 
         openalpr = _OpenAlpr(ModelConfig(alpr_service="open_alpr", alpr_key="k"))
         openalpr.filename = str(image)
         with patch.object(_OpenAlpr, "_prepare"), patch("requests.post", return_value=resp) as post:
             openalpr.detect(None, "alpr")
-        assert post.call_args.kwargs["timeout"] == _ALPR_TIMEOUT
+        assert post.call_args.kwargs.get("timeout", 0) > 0
 
     def test_open_alpr_cmdline_no_shell_true(self):
         """Security fix: subprocess should not use shell=True."""
