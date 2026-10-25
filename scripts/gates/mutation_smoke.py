@@ -9,6 +9,7 @@ Each target replaces one exact line fragment, runs its tests, and restores the
 file whether or not they failed. Exit 0 every mutant was caught, 1 a mutant
 survived, 2 a target no longer matches the source (update the target).
 """
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -39,8 +40,11 @@ def main():
             return 2
         path.write_text(src.replace(old, new))
         try:
+            # No bytecode for the mutant: restored within the same second at
+            # the same size, its .pyc would still look current (#86).
             r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x", test],
-                               cwd=REPO, capture_output=True, text=True)
+                               cwd=REPO, capture_output=True, text=True,
+                               env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
         finally:
             path.write_text(src)
         if r.returncode == 0:
