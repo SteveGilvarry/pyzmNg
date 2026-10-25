@@ -31,7 +31,7 @@ print(f"ZM {zm.zm_version}, API {zm.api_version}")
 
 # -- Monitors --
 for m in zm.monitors():
-    print(f"  Monitor {m.id}: {m.name} ({m.function}) {m.width}x{m.height}")
+    print(f"  Monitor {m.id}: {m.name} ({m.analysing}/{m.recording}) {m.width}x{m.height}")
 
 # -- Events (last hour) --
 events = zm.events(since="1 hour ago", limit=5)

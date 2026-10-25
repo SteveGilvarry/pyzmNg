@@ -137,7 +137,7 @@ class AuthManager:
             resp = self._session.post(login_url, data=data, timeout=self._timeout)
 
         if resp.status_code == 401:
-            raise ZMLoginError("ZoneMinder rejected the username or password", response=resp)
+            raise ZMLoginError("ZoneMinder rejected the login (HTTP 401)", response=resp)
         resp.raise_for_status()
         self._process_login_response(resp.json())
 

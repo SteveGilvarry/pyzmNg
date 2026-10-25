@@ -20,6 +20,9 @@ VERBS = {"get", "post", "put", "delete", "head", "patch", "request"}
 
 
 def _is_session(node):
+    # ponytail: matches by name, so it misses `requests.Session().get(...)` and a
+    # session bound to another name, and would count a dict named *session.
+    # Track Session() bindings with a scope-aware pass if that starts to matter.
     name = node.id if isinstance(node, ast.Name) else getattr(node, "attr", "")
     return name.lower().endswith("session")
 

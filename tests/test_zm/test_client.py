@@ -2334,6 +2334,7 @@ def _monitor_data(mid=3, **fields):
 
 
 _ZMS_CONFIG = {"config": {"Config": {"Name": "ZM_PATH_ZMS", "Value": "/zm/cgi-bin/nph-zms"}}}
+_NO_MIN = {"config": {"Config": {"Name": "ZM_MIN_STREAMING_PORT", "Value": ""}}}
 
 
 class TestEventCounts:
@@ -2427,33 +2428,64 @@ class TestStreamUrls:
         client, _ = _client_with(mock_zmapi_cls, {"monitors": [_monitor_data(3)]}, _ZMS_CONFIG)
         assert client.monitor(3).streaming_url(auth="HASH").endswith("&auth=HASH")
 
+    _OTHER = {"Server": {"Id": "1", "Name": "zm1", "Hostname": "zm1.lan", "Protocol": "https",
+                         "Port": "443", "PathToZMS": "/zm/cgi-bin/nph-zms"}}
+
     @patch("pyzm.client.ZMAPI")
     def test_monitor_on_another_server(self, mock_zmapi_cls):
         server = {"Server": {"Id": "2", "Name": "zm2", "Hostname": "zm2.lan", "Protocol": "https",
                              "Port": "8443", "PathToZMS": "/cgi-bin/nph-zms"}}
         client, _ = _client_with(mock_zmapi_cls, {"monitors": [_monitor_data(3, ServerId="2")]},
-                                 {"servers": [server]})
+                                 {"servers": [self._OTHER, server]}, _NO_MIN)
         assert client.monitor(3).streaming_url() == "https://zm2.lan:8443/cgi-bin/nph-zms?mode=jpeg&monitor=3"
 
     @patch("pyzm.client.ZMAPI")
-    def test_server_row_gaps_fall_back_like_zm(self, mock_zmapi_cls):
-        # No Hostname -> Name; no Protocol/Port -> the portal's; no PathToZMS -> ZM_PATH_ZMS;
-        # a default port for the scheme isn't written out.
+    def test_min_streaming_port_gives_each_monitor_a_port(self, mock_zmapi_cls):
+        server = {"Server": {"Id": "2", "Name": "zm2", "Hostname": "zm2.lan", "Protocol": "http",
+                             "Port": "80", "PathToZMS": "/cgi-bin/nph-zms"}}
+        client, _ = _client_with(
+            mock_zmapi_cls, {"monitors": [_monitor_data(3, ServerId="2")]},
+            {"servers": [self._OTHER, server]},
+            {"config": {"Config": {"Name": "ZM_MIN_STREAMING_PORT", "Value": "30000"}}})
+        assert client.monitor(3).streaming_url() == "http://zm2.lan:30003/cgi-bin/nph-zms?mode=jpeg&monitor=3"
+
+    @patch("pyzm.client.ZMAPI")
+    def test_server_row_gaps(self, mock_zmapi_cls):
+        # No Hostname -> Name; no Protocol -> the portal's; no Port -> left out;
+        # no PathToZMS -> ZM_PATH_ZMS.
         server = {"Server": {"Id": "5", "Name": "zm5", "Hostname": "", "Protocol": "",
                              "Port": "", "PathToZMS": ""}}
         client, _ = _client_with(mock_zmapi_cls, {"monitors": [_monitor_data(3, ServerId="5")]},
-                                 {"servers": [server]}, _ZMS_CONFIG)
+                                 {"servers": [self._OTHER, server]}, _NO_MIN, _ZMS_CONFIG)
         assert client.monitor(3).snapshot_url() == "https://zm5/zm/cgi-bin/nph-zms?mode=single&monitor=3"
+
+    @patch("pyzm.client.ZMAPI")
+    def test_single_server_row_keeps_the_portal_url(self, mock_zmapi_cls):
+        # One Servers row: the caller's portal URL may be a proxy or public
+        # name the row doesn't know, so it stays.
+        only = {"Server": {"Id": "1", "Name": "zm", "Hostname": "zm-lan", "Protocol": "http",
+                           "Port": "80", "PathToZMS": "/zm/cgi-bin/nph-zms"}}
+        client, _ = _client_with(mock_zmapi_cls, {"monitors": [_monitor_data(3, ServerId="1")]},
+                                 {"servers": [only]}, _ZMS_CONFIG)
+        assert client.monitor(3).streaming_url() == "https://zm.example.com/zm/cgi-bin/nph-zms?mode=jpeg&monitor=3"
 
     @patch("pyzm.client.ZMAPI")
     def test_unknown_server_uses_the_portal(self, mock_zmapi_cls, caplog):
         import logging
         client, _ = _client_with(mock_zmapi_cls, {"monitors": [_monitor_data(3, ServerId="9")]},
-                                 {"servers": []}, _ZMS_CONFIG)
+                                 {"servers": [self._OTHER, self._OTHER]}, _ZMS_CONFIG)
         with caplog.at_level(logging.WARNING, logger="pyzm"):
             url = client.monitor(3).streaming_url()
         assert url == "https://zm.example.com/zm/cgi-bin/nph-zms?mode=jpeg&monitor=3"
         assert any("ServerId 9" in r.getMessage() for r in caplog.records)
+
+    @patch("pyzm.client.ZMAPI")
+    def test_unreadable_servers_use_the_portal(self, mock_zmapi_cls):
+        import requests
+        client, api = _client_with(mock_zmapi_cls, {"monitors": [_monitor_data(3, ServerId="2")]})
+        api.get.side_effect = [{"monitors": [_monitor_data(3, ServerId="2")]},
+                               requests.HTTPError("403"), _ZMS_CONFIG]
+        assert client.monitor(3).streaming_url() == "https://zm.example.com/zm/cgi-bin/nph-zms?mode=jpeg&monitor=3"
 
 
 class TestHumanTimeWithoutDateparser:
@@ -2470,6 +2502,10 @@ class TestHumanTimeWithoutDateparser:
         ("now", {}), ("30 seconds ago", {"seconds": 30}), ("1 minute ago", {"minutes": 1}),
         ("1 hour ago", {"hours": 1}), ("6 hours ago", {"hours": 6}), ("7 days ago", {"days": 7}),
         ("1 week ago", {"weeks": 1}), ("2 Weeks Ago", {"weeks": 2}),
+        ("15 min ago", {"minutes": 15}), ("3 mins ago", {"minutes": 3}), ("10 sec ago", {"seconds": 10}),
+        ("2 hrs ago", {"hours": 2}), ("1 h ago", {"hours": 1}), ("2d ago", {"days": 2}),
+        ("an hour ago", {"hours": 1}), ("a day ago", {"days": 1}), ("1 wk ago", {"weeks": 1}),
+        ("last week", {"weeks": 1}),
     ])
     def test_relative_times(self, text, delta):
         from datetime import datetime, timedelta
@@ -2492,18 +2528,25 @@ class TestHumanTimeWithoutDateparser:
             assert abs((datetime.now() - delta) - got) < timedelta(seconds=5), text
 
     def test_iso_timestamps(self):
+        assert self._parse("2024-01-15T10:30:00Z") == "2024-01-15 10:30:00"
         assert self._parse("2024-01-15 10:30:00") == "2024-01-15 10:30:00"
         assert self._parse("2024-01-15T10:30") == "2024-01-15 10:30:00"
         assert self._parse("2024-01-15") == "2024-01-15 00:00:00"
 
-    def test_anything_else_is_passed_through(self):
-        assert self._parse("last monday") == "last monday"
+    def test_anything_else_is_passed_through_with_a_warning(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING, logger="pyzm"):
+            assert self._parse("monday") == "monday"
+        assert any("ignores the filter" in r.getMessage() for r in caplog.records)
 
     def test_matches_dateparser_where_both_apply(self):
         from datetime import datetime, timedelta
         dateparser = pytest.importorskip("dateparser")
         for text in ("now", "today", "yesterday", "1 hour ago", "6 hours ago", "7 days ago",
-                     "1 week ago", "3 months ago", "2 years ago", "2024-01-15 10:30:00"):
+                     "1 week ago", "3 months ago", "2 years ago", "2024-01-15 10:30:00",
+                     "15 min ago", "3 mins ago", "10 sec ago", "2 hrs ago", "1 h ago", "2d ago",
+                     "an hour ago", "a day ago", "1 wk ago", "1 yr ago", "last week",
+                     "last month", "last year"):
             ours = datetime.strptime(self._parse(text), "%Y-%m-%d %H:%M:%S")
             theirs = dateparser.parse(text).replace(microsecond=0)
             assert abs(ours - theirs) < timedelta(seconds=5), text

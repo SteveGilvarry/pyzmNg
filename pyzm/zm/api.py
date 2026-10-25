@@ -129,6 +129,29 @@ class ZMAPI:
     ) -> Any:
         """Make an HTTP request with automatic auth injection.
 
+        See :meth:`_request` for the arguments, return values and errors.
+        ``requests`` names the URL, auth token included, in HTTP, connection
+        and timeout errors.  Those are re-raised with the same type and the
+        URL masked, outside the ``except`` block so the original isn't
+        attached as ``__context__``.  ``exc.request`` and ``exc.response``
+        still hold the real URL.
+        """
+        try:
+            return self._request(url, method, params, payload, reauth)
+        except (requests.HTTPError, requests.ConnectionError, requests.Timeout) as exc:
+            masked = type(exc)(redact_secrets(str(exc)), request=exc.request, response=exc.response)
+        raise masked
+
+    def _request(
+        self,
+        url: str,
+        method: str = "get",
+        params: dict[str, str] | None = None,
+        payload: dict[str, Any] | None = None,
+        reauth: bool = True,
+    ) -> Any:
+        """Make an HTTP request with automatic auth injection.
+
         Parameters
         ----------
         url:
@@ -173,12 +196,6 @@ class ZMAPI:
 
         except requests.HTTPError as exc:
             return self._handle_http_error(exc, url, method, params, payload, reauth)
-
-        except (requests.ConnectionError, requests.Timeout) as exc:
-            # The message names the URL, auth token included.
-            raise type(exc)(
-                redact_secrets(str(exc)), request=exc.request, response=exc.response,
-            ) from None
 
         except ValueError as exc:
             return self._handle_value_error(exc, url, method, params, payload, reauth)
@@ -288,10 +305,7 @@ class ZMAPI:
             logger.debug("Got 404; raising BAD_IMAGE")
             raise ValueError("BAD_IMAGE")
 
-        # requests puts the full URL, auth token included, in the message.
-        raise requests.HTTPError(
-            redact_secrets(str(exc)), response=exc.response, request=exc.request,
-        ) from None
+        raise exc
 
     def _handle_value_error(
         self,

@@ -19,8 +19,9 @@ INSTALL_REQUIRES=[
     'pydantic>=2.0.0',
     ]
 
-# Natural-language times in events(since=...) such as "last monday". Without
-# it pyzm handles "N <unit>s ago", now/today/yesterday and ISO timestamps.
+# More time formats in events(since=...), such as "monday" or "January 5".
+# Without it pyzm handles "N <unit> ago" (with the common abbreviations),
+# "last week/month/year", now/today/yesterday and ISO timestamps.
 _DATES_REQUIRES=[
     'dateparser>=1.1.0',
     ]

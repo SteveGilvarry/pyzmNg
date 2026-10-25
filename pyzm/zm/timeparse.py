@@ -3,22 +3,38 @@
 from __future__ import annotations
 
 import calendar
+import logging
 import re
 from datetime import datetime, timedelta
 
+logger = logging.getLogger("pyzm")
+
 _ZM_FORMAT = "%Y-%m-%d %H:%M:%S"
-_AGO_RE = re.compile(
-    r"^(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago$", re.IGNORECASE,
-)
+# Unit spellings dateparser accepts in "N <unit> ago", mapped to one name.
+_UNITS = {
+    **dict.fromkeys(("s", "sec", "secs", "second", "seconds"), "seconds"),
+    **dict.fromkeys(("min", "mins", "minute", "minutes"), "minutes"),
+    **dict.fromkeys(("h", "hr", "hrs", "hour", "hours"), "hours"),
+    **dict.fromkeys(("d", "day", "days"), "days"),
+    **dict.fromkeys(("w", "wk", "wks", "week", "weeks"), "weeks"),
+    **dict.fromkeys(("month", "months"), "months"),
+    **dict.fromkeys(("y", "yr", "yrs", "year", "years"), "years"),
+}
+_AGO_RE = re.compile(r"^(\d+|an?)\s*([a-z]+)\s+ago$", re.IGNORECASE)
+_LAST_RE = re.compile(r"^last\s+(week|month|year)$", re.IGNORECASE)
 
 
 def parse_human_time(time_str: str) -> str:
     """Return *time_str* as a local ``YYYY-MM-DD HH:MM:SS``, or unchanged.
 
     Uses dateparser when it's installed (``pyzm[dates]``).  Without it,
-    handles ``"N <unit>s ago"`` (seconds to years), ``"now"``, ``"today"``,
-    ``"yesterday"`` and ISO timestamps, with dateparser's meaning for each.
-    Anything else goes to ZM unchanged.
+    handles ``"N <unit> ago"`` (seconds to years, with dateparser's
+    abbreviations such as ``min``, ``hrs``, ``d``, and ``a``/``an`` for 1),
+    ``"last week/month/year"``, ``"now"``, ``"today"``, ``"yesterday"`` and
+    ISO timestamps, with dateparser's meaning for each.
+
+    A string neither can parse is returned unchanged, with a warning: ZM
+    ignores a filter it can't read, so the query isn't limited by it.
     """
     try:
         import dateparser
@@ -26,7 +42,13 @@ def parse_human_time(time_str: str) -> str:
         dt = _parse_common(time_str.strip())
     else:
         dt = dateparser.parse(time_str)
-    return dt.strftime(_ZM_FORMAT) if dt else time_str
+    if dt:
+        return dt.strftime(_ZM_FORMAT)
+    logger.warning(
+        "Can't parse time %r; ZoneMinder ignores the filter, so events from any "
+        "time are returned", time_str,
+    )
+    return time_str
 
 
 def _parse_common(text: str) -> datetime | None:
@@ -36,16 +58,22 @@ def _parse_common(text: str) -> datetime | None:
         return now
     if word == "yesterday":
         return now - timedelta(days=1)
-    m = _AGO_RE.match(text)
-    if m:
-        count, unit = int(m.group(1)), m.group(2).lower()
-        if unit in ("month", "year"):
-            return _months_back(now, count * 12 if unit == "year" else count)
-        return now - timedelta(**{unit + "s": count})
+    if m := _LAST_RE.match(text):
+        return _back(now, 1, m.group(1).lower() + "s")
+    if (m := _AGO_RE.match(text)) and m.group(2).lower() in _UNITS:
+        count = 1 if m.group(1).lower() in ("a", "an") else int(m.group(1))
+        return _back(now, count, _UNITS[m.group(2).lower()])
     try:
-        return datetime.fromisoformat(text)
+        # Python 3.10's fromisoformat doesn't accept a trailing Z
+        return datetime.fromisoformat(re.sub(r"Z$", "+00:00", text))
     except ValueError:
         return None
+
+
+def _back(now: datetime, count: int, unit: str) -> datetime:
+    if unit in ("months", "years"):
+        return _months_back(now, count * 12 if unit == "years" else count)
+    return now - timedelta(**{unit: count})
 
 
 def _months_back(dt: datetime, months: int) -> datetime:

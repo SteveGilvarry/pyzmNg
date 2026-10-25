@@ -42,7 +42,7 @@ Requirements
 ------------
 
 - Python 3.10 or newer
-- Pydantic >= 2.0
+- requests and Pydantic >= 2.0 (installed with pyzm)
 - OpenCV 4.13+ (``cv2``) -- required for ML detection features (ONNX YOLO models need 4.13+ for full operator support).
   Darknet models (``.weights`` + ``.cfg``, i.e. YOLOv4/YOLOv3) additionally require OpenCV **4.4 or newer but
   below 5.0**: OpenCV 5.0 removed the Darknet importer. PyPI now serves OpenCV 5 wheels, so install it as
@@ -88,8 +88,8 @@ installer):
    # ZM API client plus the database features (no ML):
    sudo /opt/zoneminder/venv/bin/pip install "pyzm[db]"
 
-   # Add natural-language times like "last monday" to events(since=...):
-   sudo /opt/zoneminder/venv/bin/pip install "pyzm[dates]"
+   # Extras combine, e.g. ML detection plus more time formats in events(since=...):
+   sudo /opt/zoneminder/venv/bin/pip install "pyzm[ml,dates]"
 
    # ZM API client only (monitors, events, zones; no ML, no database):
    sudo /opt/zoneminder/venv/bin/pip install pyzm
@@ -113,6 +113,12 @@ OpenCV shim, and ownership in one step.
 
    # ML detection only:
    sudo ./scripts/setup_venv.sh --extras ml
+
+   # ML detection + training UI:
+   sudo ./scripts/setup_venv.sh --extras ml,train
+
+   # ZM API client plus the database features (no ML):
+   sudo ./scripts/setup_venv.sh --extras db
 
    # ZM API client only (monitors, events, zones — no ML):
    sudo ./scripts/setup_venv.sh
@@ -167,9 +173,9 @@ their own dependencies).
      - Features that read the ZM database directly. See `Database access`_.
    * - ``[dates]``
      - dateparser
-     - Natural-language times in ``events(since=..., until=...)``, such as
-       "last monday". The base install handles "N minutes/hours/days ago" and
-       similar, "now", "today", "yesterday" and ISO timestamps.
+     - More time formats in ``events(since=..., until=...)``, such as
+       "monday" or "January 5". The base install handles the formats listed
+       in :doc:`zm_events`.
    * - ``[ml]``
      - numpy, Pillow, onnx, Shapely, portalocker, imutils, PyMySQL
      - ML detection (``Detector``, ``detect_event()``), plus the ``[db]``
@@ -186,11 +192,14 @@ their own dependencies).
      - The model training UI (``python -m pyzm.train``). No database driver.
    * - ``[full]``
      - Everything in the rows above
-     - All of it on one box.
+     - Every feature on one machine.
 
 Some packages aren't in any extra. pyzm uses them when they're installed:
 
-- OpenCV (``cv2``): required for ``[ml]`` and ``[serve]``; see Requirements.
+- OpenCV (``cv2``): required for ``[ml]``, ``[serve]`` and ``[train]``; see
+  Requirements. ``[train]``'s ultralytics pulls in ``opencv-python`` from PyPI
+  itself, which can replace an OpenCV you built from source (see the note
+  below).
 - ``python-dotenv``: loads a ``.env`` file in ``setup_zm_logging()``. See
   :doc:`logging`.
 - ``cryptography`` and ``PyNaCl``: MySQL 8 and MariaDB ed25519 logins
@@ -297,10 +306,12 @@ Upgrading
    git pull
    sudo ./scripts/setup_venv.sh --extras full   # same extras you used before
 
-**Upgrading from 2.5.4 or older:** ``dateparser`` and ``python-dotenv``
-are no longer base dependencies. pip doesn't remove them on upgrade, so
-``events(since=...)`` and ``.env`` loading keep working exactly as before.
-On a fresh install, add ``[dates]`` or ``python-dotenv`` if you rely on them.
+**Upgrading from 2.5.5 or older:** ``dateparser`` and ``python-dotenv``
+are no longer base dependencies. ``pip install --upgrade`` doesn't remove
+them, so ``events(since=...)`` and ``.env`` loading keep working as before.
+A fresh install, a rebuilt container or venv, or a lockfile-driven install
+(``pip-sync``, ``uv sync``, poetry) won't have them: add ``[dates]`` or
+``python-dotenv`` if you rely on them.
 
 ``mysql-connector-python`` is no longer a
 base dependency, but pip doesn't remove it on upgrade, and pyzm keeps using

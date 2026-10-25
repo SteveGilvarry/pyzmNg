@@ -352,10 +352,6 @@ class Monitor:
     id: int
     name: str = ""
     function: str = ""      # legacy: "Monitor", "Modect", "Record", etc.
-    capturing: str = ""     # ZM 1.37+: "None", "Ondemand", "Always"
-    analysing: str = ""     # ZM 1.37+: "None", "Always"
-    recording: str = ""     # ZM 1.37+: "None", "OnMotion", "Always"
-    server_id: int | None = None  # multi-server: the Servers row hosting it
     enabled: bool = True
     width: int = 0
     height: int = 0
@@ -364,6 +360,11 @@ class Monitor:
     control_id: int | None = None
     zones: list[Zone] = field(default_factory=list)
     status: MonitorStatus = field(default_factory=MonitorStatus)
+    # Added after the original fields so positional construction still works
+    capturing: str = ""     # ZM 1.37+: "None", "Ondemand", "Always"
+    analysing: str = ""     # ZM 1.37+: "None", "Always"
+    recording: str = ""     # ZM 1.37+: "None", "OnMotion", "Always"
+    server_id: int | None = None  # multi-server: the Servers row hosting it
 
     _raw: dict = field(default_factory=dict, repr=False, compare=False)
     _client: ZMClient | None = field(default=None, repr=False, compare=False)

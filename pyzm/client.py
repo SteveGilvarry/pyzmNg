@@ -25,6 +25,8 @@ import time
 from typing import Any
 from urllib.parse import quote, urlparse, urlencode
 
+import requests
+
 from pyzm.models.config import StreamConfig, ZMClientConfig
 from pyzm.models.zm import Event, Frame, Monitor, Notification, PTZCapabilities, Zone
 from pyzm.zm.api import ZMAPI
@@ -97,6 +99,7 @@ class ZMClient:
         self._monitors: list[Monitor] | None = None
         self._zms_path: str | None = None
         self._servers_by_id: dict[int, dict] | None = None
+        self._min_streaming_port: int | None = None
 
     # ------------------------------------------------------------------
     # Properties
@@ -360,10 +363,11 @@ class ZMClient:
     ) -> str:
         """Build a ZMS CGI URL for a monitor.
 
-        A monitor on another server of a multi-server setup gets that
-        server's address, built the way ZM's web UI does.  Otherwise the
-        portal URL and ``ZM_PATH_ZMS`` are used, with any path prefix they
-        share deduplicated.  *authenticated* appends the current auth token.
+        When ZM has more than one server, a monitor's URL uses its own
+        server's ``Servers`` row (see :meth:`_server_base_url`).  Otherwise
+        the portal URL and ``ZM_PATH_ZMS`` are used, with any path prefix
+        they share deduplicated.  *authenticated* appends the current auth
+        string.
         """
         params = {"mode": mode, "monitor": str(monitor_id), **kwargs}
         query = urlencode(params)
@@ -372,7 +376,8 @@ class ZMClient:
 
         server = self._server(server_id) if server_id else None
         if server is not None:
-            return f"{self._server_base_url(server)}{server.get('PathToZMS') or self._zms_config_path()}?{query}"
+            base = self._server_base_url(server, monitor_id)
+            return f"{base}{server.get('PathToZMS') or self._zms_config_path()}?{query}"
 
         zms_path = self._zms_config_path()
         portal_url = self._api.portal_url
@@ -389,23 +394,49 @@ class ZMClient:
         return self._zms_path
 
     def _server(self, server_id: int) -> dict | None:
-        """The ``Servers`` row for *server_id*, fetched once per client."""
+        """The ``Servers`` row for *server_id* when ZM has more than one
+        server, else ``None``.  Read once per client."""
         if self._servers_by_id is None:
-            self._servers_by_id = {int(s["Id"]): s for s in self.servers() if s.get("Id")}
+            try:
+                rows = self.servers()
+            except (requests.RequestException, ValueError) as exc:
+                logger.warning("Can't read ZM servers (%s); stream URLs use the portal URL", exc)
+                rows = []
+            # With one server the portal URL already reaches it, perhaps by a
+            # name (proxy, public DNS) the Servers row doesn't know.
+            self._servers_by_id = (
+                {int(s["Id"]): s for s in rows if s.get("Id")} if len(rows) > 1 else {}
+            )
         server = self._servers_by_id.get(server_id)
-        if server is None:
+        if server is None and self._servers_by_id:
             logger.warning("Monitor references unknown ServerId %d; using the portal URL", server_id)
         return server
 
-    def _server_base_url(self, server: dict) -> str:
-        """``Protocol://Hostname[:Port]``, with the gaps ZM's web UI fills."""
-        portal = urlparse(self._api.portal_url)
-        protocol = server.get("Protocol") or portal.scheme or "http"
+    def _server_base_url(self, server: dict, monitor_id: int) -> str:
+        """``Protocol://Hostname[:Port]`` from a ``Servers`` row.
+
+        As ZM's web UI does: Name stands in for an empty Hostname, and
+        ``ZM_MIN_STREAMING_PORT``, when set, gives each monitor the port
+        ``ZM_MIN_STREAMING_PORT + monitor id``.  An empty Protocol takes the
+        portal's; an empty Port is left out (ZM's UI would use the
+        browser's).  The scheme's default port isn't written out.
+        """
+        protocol = server.get("Protocol") or urlparse(self._api.portal_url).scheme or "http"
         host = server.get("Hostname") or server.get("Name")
-        port = server.get("Port") or (portal.port if portal.scheme == protocol else None)
+        min_port = self._min_streaming_port_value()
+        port = min_port + monitor_id if min_port else server.get("Port")
         if port and str(port) != {"https": "443", "http": "80"}.get(protocol):
             return f"{protocol}://{host}:{port}"
         return f"{protocol}://{host}"
+
+    def _min_streaming_port_value(self) -> int:
+        """``ZM_MIN_STREAMING_PORT`` as an int (0 when unset), read once."""
+        if self._min_streaming_port is None:
+            try:
+                self._min_streaming_port = int(self.config("ZM_MIN_STREAMING_PORT").get("Value") or 0)
+            except (requests.RequestException, ValueError):
+                self._min_streaming_port = 0
+        return self._min_streaming_port
 
     def _streaming_url_mjpeg(self, monitor_id: int, **kwargs) -> str:
         """Build an MJPEG streaming URL for a monitor."""

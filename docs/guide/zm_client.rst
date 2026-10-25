@@ -91,8 +91,8 @@ certificate.
 ``ZMClient()`` logs in when it's created. If ZM rejects the username or
 password, it raises ``ZMLoginError``. That's a subclass of
 ``requests.HTTPError``, so code that already catches ``HTTPError`` still
-works. A server that can't be reached raises the usual ``requests`` errors,
-and every request to ZoneMinder, including the login, gives up after
+works. A server that can't be reached raises the usual ``requests`` errors.
+Every request to ZoneMinder, including the login, gives up after
 ``timeout`` seconds.
 
 .. code-block:: python
@@ -108,8 +108,9 @@ and every request to ZoneMinder, including the login, gives up after
        print(f"can't reach ZoneMinder: {exc}")
 
 When an API call fails with an HTTP error, a connection error or a timeout,
-the error pyzm raises has any token or credentials in the URL masked, so it's
-safe to log.
+the message and traceback of the error pyzm raises have any token or
+credentials in the URL masked. The attached ``exc.request`` and
+``exc.response`` objects still hold the real URL, so don't log those.
 
 Database access
 ----------------

@@ -61,6 +61,11 @@ Monitor control
    # Daemon status
    m.daemon_status()                    # capture daemon (zmc) status
 
+``alarm_state()`` turns the status number into a name, including on ZM
+1.36.16 through 1.36.25, where the API reports every state one higher than
+other versions do. (``SharedMemory.alarm_state()`` in :doc:`zm_system` is a
+different thing: it reads the monitor's shared memory on the ZM host.)
+
 Streaming & snapshot URLs
 --------------------------
 
@@ -76,11 +81,6 @@ Streaming & snapshot URLs
    url = m.snapshot_url()                            # mode=single
    url = m.snapshot_url(scale=50)
 
-``alarm_state()`` turns the status number into a name, including on ZM
-1.36.16 through 1.36.25, where the API reports every state one higher than
-other versions do. (``SharedMemory.alarm_state()`` in :doc:`zm_system` is a
-different thing: it reads the monitor's shared memory on the ZM host.)
-
 .. code-block:: python
 
    # For a client with no ZM session, such as a browser or media player
@@ -88,13 +88,24 @@ different thing: it reads the monitor's shared memory on the ZM host.)
 
 Both URLs are built from the portal URL and ``ZM_PATH_ZMS``, with automatic
 path deduplication (e.g. ``/zm`` won't be doubled). ``ZM_PATH_ZMS`` is read
-once per client. On a multi-server setup, a monitor on another server gets
-that server's address from its ``Servers`` row (protocol, hostname, port and
-ZMS path), the way ZM's own web UI builds it.
+once per client.
 
-``authenticated=True`` appends the current auth token, so whatever opens the
-URL doesn't need its own ZM login. Tokens expire, so build the URL when you
-need it rather than storing it. Without it, the URL is the same as before.
+When ZM has more than one entry under Options > Servers, a monitor's URL
+uses its own server's entry instead: its protocol (or the portal's when
+empty), hostname (or name when empty), port and ZMS path (or
+``ZM_PATH_ZMS``). As in ZM's web UI, when ``ZM_MIN_STREAMING_PORT`` is set,
+each monitor gets the port ``ZM_MIN_STREAMING_PORT`` plus its id. An empty
+port is left out. With a single server entry, the portal URL is used, since
+it may reach ZM by a name (a proxy, a public DNS name) the entry doesn't
+know.
+
+``authenticated=True`` appends your current auth string, so whatever opens
+the URL doesn't need its own ZM login. That makes the URL a credential:
+anyone who has it can open the stream, so don't log or share it. With token
+auth (ZM 1.34+) it carries an access token that expires, so build the URL
+when you need it rather than storing it. On older ZM with legacy auth it can
+carry your password in plain text and doesn't expire. Without
+``authenticated=True``, the URL has no credentials.
 
 PTZ control
 ------------

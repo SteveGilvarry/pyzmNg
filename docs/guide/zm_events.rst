@@ -20,12 +20,25 @@ Querying events
 Filters: ``event_id``, ``monitor_id``, ``since``, ``until``,
 ``min_alarm_frames``, ``object_only``, ``limit``.
 
-``since`` and ``until`` take "N seconds/minutes/hours/days/weeks/months/years
-ago", "now", "today", "yesterday", or an ISO timestamp such as
-``"2024-01-15 10:30:00"``, all in the ZM host's local time. With the
-``[dates]`` extra installed, dateparser handles them instead and adds
-natural-language forms like "last monday". A string neither can parse is
-passed to ZM as is.
+``since`` and ``until`` (and ``before`` in ``delete_events()``) take:
+
+- "N <unit> ago", where the unit is seconds, minutes, hours, days, weeks,
+  months or years, singular or plural, or one of ``s``, ``sec``, ``secs``,
+  ``min``, ``mins``, ``h``, ``hr``, ``hrs``, ``d``, ``w``, ``wk``, ``wks``,
+  ``y``, ``yr``, ``yrs``. "a" or "an" means 1, and the space is optional
+  ("2d ago").
+- "last week", "last month", "last year"
+- "now", "today" (both mean now), "yesterday" (24 hours ago)
+- an ISO timestamp such as ``"2024-01-15 10:30:00"`` or ``"2024-01-15"``
+
+Relative times use the clock and timezone of the machine running pyzm, and
+ZM compares them in its own timezone, so run both in the same timezone. With
+the ``[dates]`` extra installed, dateparser parses these instead (with the
+same meaning) and adds forms like "monday" or "January 5".
+
+ZM ignores a time filter it can't read and returns events from any time. So
+when a string can't be parsed, pyzm logs a warning and passes it on
+unchanged.
 
 Counting events
 ----------------

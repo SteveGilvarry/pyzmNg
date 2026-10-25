@@ -402,6 +402,25 @@ class TestZMAPIRequest:
 
         assert "TOK123" not in "".join(traceback.format_exception(exc_info.value))
         assert "monitors.json?token=***" in str(exc_info.value)
+        assert exc_info.value.__context__ is None  # the raw error isn't reachable
+
+    def test_masked_http_error_drops_the_raw_context(self):
+        api, session, auth = self._make_api()
+        auth.apply_auth.side_effect = lambda url, params: (url, {**(params or {}), "token": "TOK123"})
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.raise_for_status.side_effect = requests.HTTPError("x?token=TOK123", response=mock_resp)
+        session.get.return_value = mock_resp
+        with pytest.raises(requests.HTTPError) as exc_info:
+            api.request("https://zm.example.com/zm/api/x.json")
+        assert exc_info.value.__context__ is None
+        assert exc_info.value.__cause__ is None
+
+    def test_auth_manager_gets_the_configured_timeout(self):
+        with patch("pyzm.zm.api.AuthManager") as mock_auth_cls, patch("pyzm.zm.api.requests.Session"):
+            mock_auth_cls.return_value = _make_mock_auth()
+            ZMAPI(_make_config(timeout=17))
+        assert mock_auth_cls.call_args.kwargs["timeout"] == 17
 
     def test_bad_image_zero_content_length(self):
         api, session, auth = self._make_api()

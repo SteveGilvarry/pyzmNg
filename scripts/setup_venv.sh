@@ -7,7 +7,8 @@
 #   sudo ./scripts/setup_venv.sh --extras db              # + ZM database access
 #   sudo ./scripts/setup_venv.sh --extras ml              # + ML detection (includes db)
 #   sudo ./scripts/setup_venv.sh --extras ml,serve        # + ML + remote server
-#   sudo ./scripts/setup_venv.sh --extras ml,serve,train  # everything
+#   sudo ./scripts/setup_venv.sh --extras ml,serve,train  # ML + server + training UI
+#   sudo ./scripts/setup_venv.sh --extras full            # everything
 #   sudo ZM_VENV=/custom/path ./scripts/setup_venv.sh
 #
 # NOTE: The base install (no --extras) only includes the ZM API client.
