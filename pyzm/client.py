@@ -388,9 +388,24 @@ class ZMClient:
         return f"{portal_url}{zms_path}?{query}"
 
     def _zms_config_path(self) -> str:
-        """``ZM_PATH_ZMS``, fetched once per client."""
+        """``ZM_PATH_ZMS``, fetched once per client.
+
+        An API user without permission to view ZM's options can't read it.
+        Then the ZMS path of the ``Servers`` entries is used, which ZM's web
+        UI prefers over ``ZM_PATH_ZMS`` anyway, when they agree on one.
+        """
         if self._zms_path is None:
-            self._zms_path = self.config("ZM_PATH_ZMS")["Value"]
+            try:
+                self._zms_path = self.config("ZM_PATH_ZMS")["Value"]
+            except (requests.HTTPError, ValueError) as exc:
+                paths = {s.get("PathToZMS") for s in self.servers() if s.get("PathToZMS")}
+                if len(paths) != 1:
+                    raise ValueError(
+                        f"Can't build a stream URL: ZM_PATH_ZMS not found ({exc}) and no "
+                        "Servers entry gives a ZMS path. The API user needs permission "
+                        "to view ZM's options."
+                    ) from None
+                self._zms_path = paths.pop()
         return self._zms_path
 
     def _server(self, server_id: int) -> dict | None:

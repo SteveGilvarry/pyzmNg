@@ -635,6 +635,7 @@ class TestMonitorOOP:
         mock_api.get.side_effect = [
             {"monitors": [_sample_monitor_api_data(1)]},
             {},  # config not found
+            {"servers": []},  # and no Servers entry with a ZMS path
         ]
         mock_zmapi_cls.return_value = mock_api
 
@@ -2486,6 +2487,29 @@ class TestStreamUrls:
         api.get.side_effect = [{"monitors": [_monitor_data(3, ServerId="2")]},
                                requests.HTTPError("403"), _ZMS_CONFIG]
         assert client.monitor(3).streaming_url() == "https://zm.example.com/zm/cgi-bin/nph-zms?mode=jpeg&monitor=3"
+
+
+class TestZmsPathWithoutConfigAccess:
+    """ZM_PATH_ZMS when the API user can't read ZM's options (#89)."""
+
+    @patch("pyzm.client.ZMAPI")
+    def test_falls_back_to_the_servers_entry(self, mock_zmapi_cls):
+        import requests
+        row = {"Server": {"Id": "1", "Name": "zm", "Hostname": "zm", "Protocol": "http",
+                          "Port": "", "PathToZMS": "/zm/cgi-bin/nph-zms"}}
+        client, api = _client_with(mock_zmapi_cls)
+        api.get.side_effect = [{"monitors": [_monitor_data(3)]}, requests.HTTPError("403 Forbidden"),
+                               {"servers": [row]}]
+        assert client.monitor(3).streaming_url() == "https://zm.example.com/zm/cgi-bin/nph-zms?mode=jpeg&monitor=3"
+
+    @patch("pyzm.client.ZMAPI")
+    def test_says_what_is_missing_when_nothing_gives_a_path(self, mock_zmapi_cls):
+        import requests
+        client, api = _client_with(mock_zmapi_cls)
+        api.get.side_effect = [{"monitors": [_monitor_data(3)]}, requests.HTTPError("403 Forbidden"),
+                               {"servers": []}]
+        with pytest.raises(ValueError, match="ZM_PATH_ZMS.*permission"):
+            client.monitor(3).streaming_url()
 
 
 class TestHumanTimeWithoutDateparser:

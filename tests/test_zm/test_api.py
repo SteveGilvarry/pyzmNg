@@ -416,6 +416,17 @@ class TestZMAPIRequest:
         assert exc_info.value.__context__ is None
         assert exc_info.value.__cause__ is None
 
+    def test_masked_error_keeps_the_frames_it_was_raised_in(self):
+        import traceback
+        api, session, auth = self._make_api()
+        auth.apply_auth.side_effect = lambda url, params: (url, {**(params or {}), "token": "TOK123"})
+        session.get.side_effect = requests.ConnectionError("url: /x?token=TOK123")
+        with pytest.raises(requests.ConnectionError) as exc_info:
+            api.request("https://zm.example.com/zm/api/x.json")
+        frames = [f.name for f in traceback.extract_tb(exc_info.value.__traceback__)]
+        assert "_dispatch" in frames  # where the request actually failed
+        assert "TOK123" not in "".join(traceback.format_exception(exc_info.value))
+
     def test_auth_manager_gets_the_configured_timeout(self):
         with patch("pyzm.zm.api.AuthManager") as mock_auth_cls, patch("pyzm.zm.api.requests.Session"):
             mock_auth_cls.return_value = _make_mock_auth()

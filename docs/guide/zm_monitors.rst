@@ -92,7 +92,9 @@ Streaming & snapshot URLs
 
 Both URLs are built from the portal URL and ``ZM_PATH_ZMS``, with automatic
 path deduplication (e.g. ``/zm`` won't be doubled). ``ZM_PATH_ZMS`` is read
-once per client.
+once per client. If the API user doesn't have permission to view ZM's
+options, the ZMS path from Options > Servers is used instead. When there's
+none, building the URL raises a ``ValueError`` that says so.
 
 When ZM has more than one entry under Options > Servers, a monitor's URL
 uses its own server's entry instead: its protocol (or the portal's when
