@@ -22,6 +22,17 @@ Logging utilities for pyzm. ``setup_zm_logging()`` provides ZM-native logging
     :members: setup_zm_logging, ZMLogAdapter
     :undoc-members:
 
+ZoneMinder database
+--------------------
+
+Direct access to the ZM database, for the features the API doesn't cover.
+``connect()`` picks the installed MySQL driver (mysql-connector-python if
+present, otherwise PyMySQL) and returns ``None`` instead of raising;
+``dict_cursor()`` gives dict rows from either driver.
+
+.. automodule:: pyzm.zm.db
+    :members: get_zm_db, connect, dict_cursor, driver_available
+
 Machine Learning
 ------------------
 

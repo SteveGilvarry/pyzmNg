@@ -190,6 +190,8 @@ Two PyMySQL setups need one more package:
 
 - MySQL 8 accounts on the default ``caching_sha2_password`` auth, connected
   over TCP without TLS, need ``cryptography`` (``pip install cryptography``).
+  Without it, logins work only while the server has the password cached, so
+  they can start failing after a MySQL restart.
   You can also point ``ZM_DB_HOST`` at the socket instead, e.g.
   ``localhost:/run/mysqld/mysqld.sock``. MariaDB, which most ZoneMinder
   installs use, doesn't need it.
@@ -264,8 +266,11 @@ base dependency, but pip doesn't remove it on upgrade, and pyzm keeps using
 it while it's installed. You don't need to change anything. To switch to
 PyMySQL and free the space (about 70MB), install the ``[db]`` extra (or
 ``[ml]``/``[full]``, which include it), then remove the old driver if nothing
-else in that venv uses it. zmesNg's ``install.sh`` does this for you, after
-checking that PyMySQL can connect to your ZM database. To do it by hand:
+else in that venv uses it. zmesNg's ``install.sh`` does this for you once
+its hooks require this pyzm version, and only when its checks show pyzm keeps
+working without mysql-connector (see the `zmesNg install guide
+<https://zmeventnotificationng.readthedocs.io/en/latest/guides/install_path1.html#database-driver>`__).
+To do it by hand:
 
 .. code-block:: bash
 
