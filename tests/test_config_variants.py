@@ -570,10 +570,10 @@ class TestDBPortParsing:
         }):
             get_zm_db()
 
-        mock_connect.assert_called_once()
-        kw = mock_connect.call_args.kwargs
-        assert kw["host"] == "localhost"
-        assert kw["port"] == 3306
+        mock_connect.assert_called_once_with(
+            host="localhost", port=3306, user="zmuser", password="zmpass",
+            database="zm", connection_timeout=10,
+        )
 
     def test_malformed_port_falls_back_to_3306(self, mock_connect):
         from pyzm.zm.db import get_zm_db
