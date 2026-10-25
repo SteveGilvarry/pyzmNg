@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import tempfile
 from unittest.mock import MagicMock, patch, call
 
 import pytest
 
+from tests.conftest import fake_mysql_connector_modules
 from pyzm.log import (
     _python_to_zm,
     _read_zm_conf_full, _zm_config_to_handler_level, _ZM_OFF,
@@ -140,7 +142,6 @@ class TestZmConfigToHandlerLevel:
 class TestZMDBHandler:
     """Tests for _ZMDBHandler."""
 
-    @patch("mysql.connector.connect")
     def test_emit_inserts_row(self, mock_connect):
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -167,7 +168,6 @@ class TestZMDBHandler:
         mock_conn.commit.assert_called_once()
         handler.close()
 
-    @patch("mysql.connector.connect")
     def test_emit_debug_code_matches_perl(self, mock_connect):
         """Perl uses DB1..DB9 codes and stores actual sub-level in Level."""
         mock_conn = MagicMock()
@@ -190,8 +190,8 @@ class TestZMDBHandler:
         assert vals[5] == "DB3"  # Code = DB prefix (not DBG)
         handler.close()
 
-    @patch("mysql.connector.connect", side_effect=Exception("no db"))
     def test_connect_failure_skips_emit(self, mock_connect):
+        mock_connect.side_effect = Exception("no db")
         handler = _ZMDBHandler(
             component="test", server_id=0,
             host="localhost", user="u", password="p", database="zm",
@@ -204,7 +204,6 @@ class TestZMDBHandler:
         handler.emit(record)
         handler.close()
 
-    @patch("mysql.connector.connect")
     def test_reconnect_on_write_failure(self, mock_connect):
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -224,19 +223,17 @@ class TestZMDBHandler:
         assert handler._conn is None
         handler.close()
 
-    @patch("mysql.connector.connect")
     def test_connect_kwargs_host_port(self, mock_connect):
         mock_connect.return_value = MagicMock()
         handler = _ZMDBHandler(
             component="test", server_id=0,
             host="dbhost:3307", user="u", password="p", database="zm",
         )
-        kw = handler._connect_kwargs()
+        kw = mock_connect.call_args.kwargs
         assert kw["host"] == "dbhost"
         assert kw["port"] == 3307
         handler.close()
 
-    @patch("mysql.connector.connect")
     def test_connect_kwargs_unix_socket(self, mock_connect):
         mock_connect.return_value = MagicMock()
         handler = _ZMDBHandler(
@@ -244,12 +241,11 @@ class TestZMDBHandler:
             host="localhost:/var/run/mysqld.sock",
             user="u", password="p", database="zm",
         )
-        kw = handler._connect_kwargs()
+        kw = mock_connect.call_args.kwargs
         assert kw["unix_socket"] == "/var/run/mysqld.sock"
         assert "host" not in kw
         handler.close()
 
-    @patch("mysql.connector.connect")
     def test_close_closes_connection(self, mock_connect):
         mock_conn = MagicMock()
         mock_connect.return_value = mock_conn
@@ -765,7 +761,6 @@ class TestSetupZmLogging:
 class TestZMDBHandlerPing:
     """Tests for _ZMDBHandler ping and reconnect behavior."""
 
-    @patch("mysql.connector.connect")
     def test_ping_called_before_write(self, mock_connect):
         """Perl calls $dbh->ping() before every write."""
         mock_conn = MagicMock()
@@ -781,12 +776,9 @@ class TestZMDBHandlerPing:
             "test", logging.INFO, "test.py", 1, "msg", (), None,
         )
         handler.emit(record)
-        mock_conn.ping.assert_called_once_with(
-            reconnect=False, attempts=1, delay=0,
-        )
+        mock_conn.ping.assert_called_once_with(reconnect=False)
         handler.close()
 
-    @patch("mysql.connector.connect")
     def test_ping_failure_triggers_reconnect(self, mock_connect):
         """If ping fails, handler reconnects before writing."""
         mock_conn_dead = MagicMock()
@@ -810,7 +802,6 @@ class TestZMDBHandlerPing:
         mock_cursor.execute.assert_called_once()
         handler.close()
 
-    @patch("mysql.connector.connect")
     def test_recursive_logging_guard(self, mock_connect):
         """Emit returns early when _reconnecting=True (prevents infinite loops)."""
         mock_conn = MagicMock()
@@ -837,16 +828,17 @@ class TestZMDBHandlerPing:
 class TestZMDBHandlerLevelColumn:
     """Verify DB Level column matches Perl for all severities."""
 
-    @patch("mysql.connector.connect")
-    def _emit_and_get_level(self, py_level, mock_connect, **extra):
+    def _emit_and_get_level(self, py_level, **extra):
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_conn.cursor.return_value = mock_cursor
-        mock_connect.return_value = mock_conn
-        handler = _ZMDBHandler(
-            component="t", server_id=0,
-            host="localhost", user="u", password="p", database="zm",
-        )
+        modules = fake_mysql_connector_modules()
+        modules["mysql.connector"].connect.return_value = mock_conn
+        with patch.dict(sys.modules, modules):
+            handler = _ZMDBHandler(
+                component="t", server_id=0,
+                host="localhost", user="u", password="p", database="zm",
+            )
         record = logging.LogRecord("t", py_level, "t.py", 1, "m", (), None)
         for k, v in extra.items():
             setattr(record, k, v)
@@ -1156,7 +1148,6 @@ class TestExceptionText:
         result = _ZMSyslogFormatter().format(self._record_with_exc())
         assert "ValueError: plate key missing" in result
 
-    @patch("mysql.connector.connect")
     def test_db_handler_includes_traceback(self, mock_connect):
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -1179,3 +1170,82 @@ class TestExceptionText:
             "test", logging.INFO, "test.py", 1, "hello %s", ("world",), None,
         )
         assert _ZMSyslogFormatter().format(record) == "INF [hello world]"
+
+
+# ===================================================================
+# TestDBDriverResilience (#85)
+# ===================================================================
+
+_CONF_FULL = {
+    "dbuser": "u", "dbpassword": "p", "dbhost": "h",
+    "dbname": "zm", "webuser": "www", "webgroup": "www",
+    "logpath": "/tmp",
+}
+_HANDLERS_OFF = {"log_level_file": _ZM_OFF, "log_level_syslog": _ZM_OFF}
+
+
+def _record(msg="msg"):
+    return logging.LogRecord("test", logging.INFO, "test.py", 1, msg, (), None)
+
+
+class TestDBDriverResilience:
+    """DB logging and log-level reads with PyMySQL, a dead DB, or no driver."""
+
+    def test_pymysql_handler_reuses_one_connection(self, fake_pymysql):
+        handler = _ZMDBHandler(
+            component="test", server_id=0,
+            host="localhost", user="u", password="p", database="zm",
+        )
+        handler.emit(_record("one"))
+        handler.emit(_record("two"))
+
+        assert fake_pymysql.connect.call_count == 1
+        conn = fake_pymysql.connect.return_value
+        messages = [c.args[1][6] for c in conn.cursor_obj.execute.call_args_list]
+        assert messages == ["one", "two"]
+        handler.close()
+
+    def test_handler_waits_before_reconnecting_to_dead_db(self, fake_pymysql):
+        """A down DB costs one connect attempt per retry window, not one per record."""
+        fake_pymysql.connect.side_effect = fake_pymysql.Error("down")
+        clock = [1000.0]
+        with patch("pyzm.log.time.monotonic", side_effect=lambda: clock[0]):
+            handler = _ZMDBHandler(
+                component="test", server_id=0,
+                host="localhost", user="u", password="p", database="zm",
+            )
+            for _ in range(5):
+                handler.emit(_record())
+            assert fake_pymysql.connect.call_count == 1
+
+            clock[0] += 31
+            handler.emit(_record())
+            assert fake_pymysql.connect.call_count == 2
+        handler.close()
+
+    def test_read_log_config_with_pymysql(self, fake_pymysql):
+        from pyzm.log import _read_zm_db_log_config
+        conn = fake_pymysql.connect.return_value
+        conn.cursor_obj.fetchall.return_value = [("ZM_LOG_LEVEL_FILE", "1")]
+
+        assert _read_zm_db_log_config("h", "u", "p", "zm") == {"ZM_LOG_LEVEL_FILE": "1"}
+
+    @patch("pyzm.log._read_zm_conf_full", return_value=dict(_CONF_FULL, dbhost="db:notaport"))
+    @patch("pyzm.log._signal.signal")
+    def test_bad_port_in_db_host_does_not_raise(self, mock_sig, mock_conf, fake_pymysql):
+        adapter = setup_zm_logging(name="test_badport", override=dict(_HANDLERS_OFF))
+
+        ports = {c.kwargs.get("port") for c in fake_pymysql.connect.call_args_list}
+        assert ports == {3306}
+        adapter.close()
+
+    @patch("pyzm.log._read_zm_conf_full", return_value=dict(_CONF_FULL))
+    @patch("pyzm.log._signal.signal")
+    def test_db_logging_without_driver_warns_once(self, mock_sig, mock_conf, no_mysql_driver, caplog):
+        with caplog.at_level(logging.WARNING, logger="pyzm"):
+            adapter = setup_zm_logging(name="test_nodriver", override=dict(_HANDLERS_OFF))
+
+        hints = [r for r in caplog.records if 'pip install "pyzm[db]"' in r.getMessage()]
+        assert len(hints) == 1
+        assert not any(isinstance(h, _ZMDBHandler) for h in adapter._logger.handlers)
+        adapter.close()

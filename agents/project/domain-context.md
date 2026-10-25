@@ -16,6 +16,14 @@ commit hash behind it; the instruction gate checks the hash exists.
 - LastNotifiedAt can come back naive (ZM server local time) or with an
   offset. Compare against datetime.now(last.tzinfo) (657321d).
 
+## ZoneMinder database
+
+- PyMySQL is not a drop-in for mysql-connector. It has no
+  cursor(dictionary=True), its ping takes only reconnect, it returns a zero
+  DATETIME as a string, and MySQL 8 caching_sha2_password over TCP without
+  TLS needs the cryptography package. Connect through pyzm.zm.db.connect and
+  get dict rows from dict_cursor (881dd5c).
+
 ## Frame fetch
 
 - A transport failure from ZMAPI.request (read timeout, dropped

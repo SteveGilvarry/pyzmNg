@@ -49,6 +49,8 @@ Requirements
   ``pip install "opencv-contrib-python<5"`` if you use Darknet models. Prefer the ONNX models (YOLOv11,
   YOLOv26) — they are more accurate, faster, and carry no upper OpenCV bound.
 - A running ZoneMinder instance (for API features)
+- A MySQL driver for the features that read the ZM database directly
+  (``pyzm[db]``, also part of ``[ml]`` and ``[full]``). See `Database access`_.
 
 Path A: Install from PyPI
 --------------------------
@@ -81,7 +83,10 @@ installer):
    # ML detection only:
    sudo /opt/zoneminder/venv/bin/pip install "pyzm[ml]"
 
-   # ZM API client only (monitors, events, zones — no ML):
+   # ZM API client plus the database features (no ML):
+   sudo /opt/zoneminder/venv/bin/pip install "pyzm[db]"
+
+   # ZM API client only (monitors, events, zones; no ML, no database):
    sudo /opt/zoneminder/venv/bin/pip install pyzm
 
 Path B: Install from source
@@ -144,15 +149,55 @@ What each extra installs
    * - Extra
      - Additional packages
    * - *(base)*
-     - requests, pydantic, dateparser, mysql-connector-python, python-dotenv
+     - requests, pydantic, dateparser, python-dotenv
+   * - ``[db]``
+     - PyMySQL
    * - ``[ml]``
-     - numpy, Pillow, onnx, Shapely, portalocker
+     - numpy, Pillow, onnx, Shapely, portalocker, imutils, PyMySQL
    * - ``[serve]``
-     - ``[ml]`` deps + fastapi, uvicorn, python-multipart, PyJWT, PyYAML
+     - ``[ml]`` deps except PyMySQL + fastapi, uvicorn, python-multipart, PyJWT, PyYAML
    * - ``[train]``
-     - ``[ml]`` deps + ultralytics, streamlit, streamlit-drawable-canvas, st-clickable-images, PyYAML
+     - ``[ml]`` deps except PyMySQL + ultralytics, streamlit, streamlit-drawable-canvas, st-clickable-images, PyYAML
    * - ``[full]``
-     - All of the above (``[ml]`` + ``[serve]`` + ``[train]``)
+     - All of the above (``[db]`` + ``[ml]`` + ``[serve]`` + ``[train]``)
+
+.. _db-access:
+
+Database access
+^^^^^^^^^^^^^^^
+
+A few features read the ZM database directly instead of going through the
+API, so they need a MySQL driver:
+
+- writing to ZM's ``Logs`` table, and reading the ``ZM_LOG_LEVEL_*``
+  settings from it (see :doc:`logging`)
+- ``ev.tag()``, ``ev.path()`` and ``ev.save_objdetect()`` without
+  ``path_override`` (see :doc:`zm_events`)
+- audio extraction for BirdNET (see :doc:`detection`)
+
+The ``[db]`` extra installs PyMySQL, a pure Python driver with no
+dependencies of its own. ``[ml]`` and ``[full]`` include it, so the zmesNg
+hooks have it. If ``mysql-connector-python`` is installed, pyzm uses that
+instead. Most installs upgraded from pyzm 2.5.4 or older have it, since it
+used to be a base dependency.
+
+Without a driver, the API features work as before. ``ev.tag()``,
+``ev.path()`` and BirdNET audio return the same "unavailable" result they
+give when the database can't be reached, and pyzm logs
+``No MySQL driver installed, DB access unavailable. Install it with: pip install "pyzm[db]"``.
+
+Two PyMySQL setups need one more package:
+
+- MySQL 8 accounts on the default ``caching_sha2_password`` auth, connected
+  over TCP without TLS, need ``cryptography`` (``pip install cryptography``).
+  You can also point ``ZM_DB_HOST`` at the socket instead, e.g.
+  ``localhost:/run/mysqld/mysqld.sock``. MariaDB, which most ZoneMinder
+  installs use, doesn't need it.
+- MariaDB accounts on ``ed25519`` auth need ``PyNaCl``.
+
+When a connection fails, pyzm logs the driver's error, for example
+``DB connect to localhost failed: 'cryptography' package is required for
+sha256_password or caching_sha2_password auth methods``.
 
 .. note::
 
@@ -213,6 +258,19 @@ Upgrading
    cd pyzmNg
    git pull
    sudo ./scripts/setup_venv.sh --extras full   # same extras you used before
+
+**Upgrading from 2.5.4 or older:** ``mysql-connector-python`` is no longer a
+base dependency, but pip doesn't remove it on upgrade, and pyzm keeps using
+it while it's installed. You don't need to change anything. To switch to
+PyMySQL and free the space (about 70MB), install the ``[db]`` extra (or
+``[ml]``/``[full]``, which include it), then remove the old driver if nothing
+else in that venv uses it. zmesNg's ``install.sh`` does this for you, after
+checking that PyMySQL can connect to your ZM database. To do it by hand:
+
+.. code-block:: bash
+
+   sudo /opt/zoneminder/venv/bin/pip install --upgrade "pyzm[db]"
+   sudo /opt/zoneminder/venv/bin/pip uninstall mysql-connector-python
 
 Optional dependencies
 ---------------------
@@ -275,6 +333,9 @@ Verifying the installation
 
    # ML detection (requires pyzm[ml]):
    /opt/zoneminder/venv/bin/python -c "from pyzm import Detector; print('ML OK')"
+
+   # Database access (run as the ZM user so zm.conf is readable):
+   sudo -u www-data /opt/zoneminder/venv/bin/python -c "from pyzm.zm.db import get_zm_db; print('DB OK' if get_zm_db() else 'DB unavailable')"
 
 To verify the training UI is available:
 

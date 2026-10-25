@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from pyzm.zm.db import get_zm_db
+from pyzm.zm.db import dict_cursor, get_zm_db
 from tests.test_zm_e2e.conftest import zm_db_available
 
 pytestmark = pytest.mark.zm_e2e
@@ -43,7 +43,7 @@ class TestTagEvent:
         if conn is None:
             return
         try:
-            cur = conn.cursor(dictionary=True)
+            cur = dict_cursor(conn)
             for label in labels:
                 cur.execute("SELECT Id FROM Tags WHERE Name=%s", (label,))
                 row = cur.fetchone()
@@ -66,7 +66,7 @@ class TestTagEvent:
             any_event.tag(labels)
             conn = get_zm_db()
             assert conn is not None
-            cur = conn.cursor(dictionary=True)
+            cur = dict_cursor(conn)
             cur.execute("SELECT Id FROM Tags WHERE Name=%s", (labels[0],))
             row = cur.fetchone()
             assert row is not None, "Tag was not created in DB"
@@ -89,7 +89,7 @@ class TestTagEvent:
             any_event.tag(labels)
             conn = get_zm_db()
             assert conn is not None
-            cur = conn.cursor(dictionary=True)
+            cur = dict_cursor(conn)
             cur.execute("SELECT COUNT(*) as cnt FROM Tags WHERE Name=%s", ("pyzm_e2e_dedup",))
             row = cur.fetchone()
             assert row["cnt"] == 1

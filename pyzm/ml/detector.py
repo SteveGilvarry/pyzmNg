@@ -671,6 +671,8 @@ class Detector:
         import tempfile
         from datetime import datetime
 
+        from pyzm.zm.db import dict_cursor
+
         # Query DB for event video file and monitor location
         try:
             conn = zm_client._get_db()
@@ -682,7 +684,7 @@ class Detector:
             return None, -1, -1.0, -1.0
 
         try:
-            cur = conn.cursor(dictionary=True)
+            cur = dict_cursor(conn)
             cur.execute(
                 "SELECT E.DefaultVideo, E.StartDateTime, "
                 "M.Latitude, M.Longitude "

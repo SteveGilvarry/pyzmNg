@@ -45,8 +45,7 @@ class TestGetZmDb:
     """Tests for get_zm_db() with explicit credential overrides."""
 
     @patch("pyzm.zm.db._read_zm_conf")
-    @patch("mysql.connector.connect")
-    def test_explicit_overrides_win(self, mock_connect, mock_conf):
+    def test_explicit_overrides_win(self, mock_conf, mock_connect):
         """Explicit params override zm.conf values."""
         mock_conf.return_value = {
             "user": "conf_user", "password": "conf_pass",
@@ -58,11 +57,11 @@ class TestGetZmDb:
         mock_connect.assert_called_once_with(
             host="my_host", port=3306,
             user="my_user", password="my_pass", database="my_db",
+            connection_timeout=10,
         )
 
     @patch("pyzm.zm.db._read_zm_conf")
-    @patch("mysql.connector.connect")
-    def test_partial_overrides(self, mock_connect, mock_conf):
+    def test_partial_overrides(self, mock_conf, mock_connect):
         """Only specified overrides replace zm.conf values."""
         mock_conf.return_value = {
             "user": "conf_user", "password": "conf_pass",
@@ -78,8 +77,7 @@ class TestGetZmDb:
         assert call_kwargs["database"] == "conf_db"
 
     @patch("pyzm.zm.db._read_zm_conf")
-    @patch("mysql.connector.connect")
-    def test_no_overrides_uses_conf(self, mock_connect, mock_conf):
+    def test_no_overrides_uses_conf(self, mock_conf, mock_connect):
         """No overrides = pure zm.conf values."""
         mock_conf.return_value = {
             "user": "zmuser", "password": "zmpass",
@@ -91,9 +89,9 @@ class TestGetZmDb:
         mock_connect.assert_called_once_with(
             host="localhost", port=3306,
             user="zmuser", password="zmpass", database="zm",
+            connection_timeout=10,
         )
 
-    @patch("mysql.connector.connect")
     def test_conf_path_override(self, mock_connect, tmp_path):
         """conf_path redirects zm.conf reading to a custom directory."""
         conf = tmp_path / "zm.conf"
@@ -106,8 +104,7 @@ class TestGetZmDb:
         assert call_kwargs["user"] == "custom_dir_user"
 
     @patch("pyzm.zm.db._read_zm_conf", side_effect=PermissionError("denied"))
-    @patch("mysql.connector.connect")
-    def test_permission_denied_falls_back(self, mock_connect, mock_conf):
+    def test_permission_denied_falls_back(self, mock_conf, mock_connect):
         """When zm.conf is unreadable, defaults are used then overrides applied."""
         get_zm_db(db_user="override_user")
 
@@ -118,8 +115,7 @@ class TestGetZmDb:
         assert call_kwargs["database"] == "zm"
 
     @patch("pyzm.zm.db._read_zm_conf", side_effect=PermissionError("denied"))
-    @patch("mysql.connector.connect")
-    def test_permission_denied_debug_when_explicit(self, mock_connect, mock_conf, caplog):
+    def test_permission_denied_debug_when_explicit(self, mock_conf, mock_connect, caplog):
         """zm.conf failure is debug-level (not warning) when explicit creds provided."""
         import logging
         with caplog.at_level(logging.DEBUG, logger="pyzm.zm"):
@@ -128,8 +124,7 @@ class TestGetZmDb:
         assert not any(r.levelno == logging.WARNING and "zm.conf" in r.message for r in caplog.records)
 
     @patch("pyzm.zm.db._read_zm_conf", side_effect=PermissionError("denied"))
-    @patch("mysql.connector.connect")
-    def test_permission_denied_warning_when_no_explicit(self, mock_connect, mock_conf, caplog):
+    def test_permission_denied_warning_when_no_explicit(self, mock_conf, mock_connect, caplog):
         """zm.conf failure is warning-level when no explicit creds provided."""
         import logging
         with caplog.at_level(logging.DEBUG, logger="pyzm.zm"):
@@ -137,8 +132,7 @@ class TestGetZmDb:
         assert any(r.levelno == logging.WARNING and "zm.conf" in r.message for r in caplog.records)
 
     @patch("pyzm.zm.db._read_zm_conf")
-    @patch("mysql.connector.connect")
-    def test_host_with_port(self, mock_connect, mock_conf):
+    def test_host_with_port(self, mock_conf, mock_connect):
         """host:port syntax is parsed correctly."""
         mock_conf.return_value = {
             "user": "u", "password": "p",
@@ -150,11 +144,11 @@ class TestGetZmDb:
         mock_connect.assert_called_once_with(
             host="dbhost", port=3307,
             user="u", password="p", database="zm",
+            connection_timeout=10,
         )
 
     @patch("pyzm.zm.db._read_zm_conf")
-    @patch("mysql.connector.connect")
-    def test_host_with_socket(self, mock_connect, mock_conf):
+    def test_host_with_socket(self, mock_conf, mock_connect):
         """host:/path/to/socket syntax is parsed correctly."""
         mock_conf.return_value = {
             "user": "u", "password": "p",
@@ -166,6 +160,7 @@ class TestGetZmDb:
         mock_connect.assert_called_once_with(
             user="u", password="p", database="zm",
             unix_socket="/var/run/mysqld/mysqld.sock",
+            connection_timeout=10,
         )
 
 
@@ -282,7 +277,6 @@ class TestResolveConfPath:
         monkeypatch.setattr("pyzm.zm.db._CONF_SEARCH_PATHS", (str(a), str(b)))
         assert _resolve_conf_path() == str(a)
 
-    @patch("mysql.connector.connect")
     def test_get_zm_db_autodiscovers_conf(self, mock_connect, monkeypatch, tmp_path):
         """get_zm_db reads creds from a discovered zm.conf when no path given."""
         monkeypatch.delenv("PYZM_CONFPATH", raising=False)
@@ -300,3 +294,81 @@ class TestResolveConfPath:
         call_kwargs = mock_connect.call_args[1]
         assert call_kwargs["user"] == "disc_user"
         assert call_kwargs["host"] == "disc_host"
+
+
+_CONF = {"user": "u", "password": "p", "host": "dbhost", "database": "zm"}
+
+
+class TestDriverSelection:
+    """Which MySQL driver get_zm_db uses, and what happens without one (#85)."""
+
+    @patch("pyzm.zm.db._read_zm_conf", return_value=dict(_CONF))
+    def test_uses_pymysql_when_connector_missing(self, mock_conf, fake_pymysql):
+        conn = get_zm_db()
+
+        assert conn is fake_pymysql.connect.return_value
+        fake_pymysql.connect.assert_called_once_with(
+            host="dbhost", port=3306, user="u", password="p", database="zm",
+            connect_timeout=10,
+        )
+
+    @patch("pyzm.zm.db._read_zm_conf", return_value=dict(_CONF))
+    def test_prefers_installed_mysql_connector(self, mock_conf, fake_pymysql, fake_mysql_connector):
+        """An upgraded install keeps the driver it already had."""
+        conn = get_zm_db()
+
+        assert conn is fake_mysql_connector.connect.return_value
+        fake_pymysql.connect.assert_not_called()
+        assert fake_mysql_connector.connect.call_args.kwargs["connection_timeout"] == 10
+
+    @patch("pyzm.zm.db._read_zm_conf", return_value=dict(_CONF))
+    def test_no_driver_returns_none_with_install_hint(self, mock_conf, no_mysql_driver, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING, logger="pyzm.zm"):
+            assert get_zm_db() is None
+        assert any('pip install "pyzm[db]"' in r.message for r in caplog.records)
+
+    @patch("pyzm.zm.db._read_zm_conf", return_value=dict(_CONF))
+    def test_non_driver_error_on_connect_returns_none(self, mock_conf, fake_pymysql, caplog):
+        """PyMySQL raises RuntimeError, not pymysql.Error, when MySQL 8 auth needs cryptography."""
+        import logging
+        fake_pymysql.connect.side_effect = RuntimeError("'cryptography' package is required")
+        with caplog.at_level(logging.WARNING, logger="pyzm.zm"):
+            assert get_zm_db() is None
+        assert any("cryptography" in r.message for r in caplog.records)
+
+
+class TestDictCursor:
+    """dict_cursor returns dict rows from either driver."""
+
+    def test_pymysql_connection_gets_dict_cursor_class(self, fake_pymysql):
+        from pyzm.zm.db import dict_cursor
+        conn = fake_pymysql.connect.return_value
+
+        assert dict_cursor(conn) is conn.cursor_obj
+        assert conn.cursor_classes == [fake_pymysql.cursors.DictCursor]
+
+    def test_mysql_connector_connection_gets_dictionary_flag(self):
+        from pyzm.zm.db import dict_cursor
+        conn = MagicMock()
+
+        dict_cursor(conn)
+
+        conn.cursor.assert_called_once_with(dictionary=True)
+
+
+class TestRealDrivers:
+    """connect() against each real driver that's installed, so a kwarg the
+    driver rejects fails here instead of hiding behind "DB connect failed"."""
+
+    @pytest.mark.parametrize("module", ["pymysql", "mysql.connector"])
+    def test_refused_connection_reports_driver_error(self, module, caplog):
+        import logging
+        from pyzm.zm import db
+        driver = pytest.importorskip(module)
+
+        with patch.object(db, "_load_driver", return_value=driver), \
+                caplog.at_level(logging.WARNING, logger="pyzm.zm"):
+            assert db.connect("127.0.0.1:1", "u", "p", "zm") is None
+
+        assert any("2003" in r.getMessage() for r in caplog.records), caplog.text

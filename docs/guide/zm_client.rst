@@ -93,7 +93,11 @@ Database access
 
 Some operations — ``ev.tag()``, ``ev.path()``, ``ev.save_objdetect()``
 (when no ``path_override`` is given), and audio extraction for BirdNET —
-require a direct MySQL connection to the ZM database.  By
+require a direct MySQL connection to the ZM database, and a MySQL driver
+for it (``pip install "pyzm[db]"``, see
+:ref:`db-access`).  Without one they log a warning and behave as they do
+when the database is unreachable (``ev.path()`` returns ``None``,
+``ev.tag()`` does nothing).  By
 default, pyzm reads credentials from ``zm.conf`` (the same file
 ZoneMinder uses).  It looks for that file first at ``PYZM_CONFPATH`` (if
 the env var is set), then auto-discovers it across ``/etc/zm``,

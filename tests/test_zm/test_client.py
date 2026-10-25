@@ -2246,3 +2246,68 @@ class TestNotFoundNonePath:
         client = self._client(mock_zmapi_cls, None)
         with pytest.raises(ValueError, match="not found"):
             client._ptz_capabilities(999)
+
+
+# ===================================================================
+# TestDBWithPyMySQL (#85)
+# ===================================================================
+
+class TestDBWithPyMySQL:
+    """Tagging and event paths through a PyMySQL connection."""
+
+    @staticmethod
+    def _client(mock_zmapi_cls, conn):
+        mock_api = _make_mock_api()
+        mock_api.get.return_value = {"event": _sample_event_api_data(12345)}
+        mock_zmapi_cls.return_value = mock_api
+        from pyzm.client import ZMClient
+        client = ZMClient(api_url="https://zm.example.com/zm/api")
+        client._get_db = MagicMock(return_value=conn)
+        return client
+
+    @patch("pyzm.client.ZMAPI")
+    def test_tag_links_existing_tag(self, mock_zmapi_cls, fake_pymysql):
+        conn = fake_pymysql.connect.return_value
+        conn.cursor_obj.fetchone.return_value = {"Id": 42}
+
+        self._client(mock_zmapi_cls, conn).event(12345).tag(["person"])
+
+        assert conn.cursor_classes == [fake_pymysql.cursors.DictCursor]
+        links = [c.args[1] for c in conn.cursor_obj.execute.call_args_list
+                 if "INSERT INTO Events_Tags" in c.args[0]]
+        assert links == [(42, 12345)]
+
+    @patch("pyzm.client.ZMAPI")
+    def test_event_path(self, mock_zmapi_cls, fake_pymysql):
+        from datetime import datetime
+        conn = fake_pymysql.connect.return_value
+        conn.cursor_obj.fetchone.return_value = {
+            "MonitorId": 3, "StartDateTime": datetime(2026, 3, 10, 14, 30, 0),
+            "StorageId": 1, "StoragePath": "/var/cache/zoneminder/events", "Scheme": "Medium",
+        }
+
+        path = self._client(mock_zmapi_cls, conn)._event_path(42)
+
+        assert path == "/var/cache/zoneminder/events/3/2026-03-10/42"
+
+    @patch("pyzm.client.ZMAPI")
+    def test_event_path_zero_date_returns_none(self, mock_zmapi_cls, fake_pymysql):
+        """PyMySQL returns a MySQL zero date as a string instead of None."""
+        conn = fake_pymysql.connect.return_value
+        conn.cursor_obj.fetchone.return_value = {
+            "MonitorId": 3, "StartDateTime": "0000-00-00 00:00:00",
+            "StorageId": 1, "StoragePath": "/var/cache/zoneminder/events", "Scheme": "Medium",
+        }
+
+        assert self._client(mock_zmapi_cls, conn)._event_path(42) is None
+
+    @patch("pyzm.client.ZMAPI")
+    def test_event_path_null_date_returns_none(self, mock_zmapi_cls):
+        """mysql-connector returns a MySQL zero date as None."""
+        conn = MagicMock()
+        conn.cursor.return_value.fetchone.return_value = {
+            "MonitorId": 3, "StartDateTime": None,
+            "StorageId": 1, "StoragePath": "/var/cache/zoneminder/events", "Scheme": "Medium",
+        }
+
+        assert self._client(mock_zmapi_cls, conn)._event_path(42) is None

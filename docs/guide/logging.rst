@@ -30,7 +30,9 @@ With ZoneMinder
 
 On a ZoneMinder host, ``setup_zm_logging()`` reads ``zm.conf``, the DB
 ``Config`` table, and environment variables, then writes to ZM's log file,
-database, and syslog using the same format as Perl's ``Logger.pm``:
+database, and syslog using the same format as Perl's ``Logger.pm``.
+Reading the ``Config`` table and writing to the ``Logs`` table need a MySQL
+driver (``pyzm[db]``, see :ref:`db-access`):
 
 .. code-block:: python
 
@@ -102,11 +104,11 @@ Special case: when ``log_debug`` is on **and** ``ZM_LOG_DEBUG_FILE``
 instead -- useful for redirecting a single component's debug output to a
 dedicated file.
 
-**Gate:** the file is only opened when ``log_level_file > 0``.  With the
-default config (level ``0`` = off), no file is written even if
-``logpath`` is set.  This level is normally pulled from
-``ZM_LOG_LEVEL_FILE`` in the ZM database, so a process that cannot reach
-the database silently falls back to "off" and produces no file.
+**Gate:** the file is opened unless ``log_level_file`` is ``-5`` (ZM's
+"off").  The level normally comes from ``ZM_LOG_LEVEL_FILE`` in the ZM
+database.  A process that can't read the database (no driver, no
+credentials, or the database is down) takes it from ``PYZM_FILELOGLEVEL``,
+or the built-in default ``0``, which writes INFO and above.
 
 .. note::
 
@@ -190,9 +192,13 @@ Up to four handlers are attached to the ``"pyzm"`` stdlib logger:
 
 - **File handler** — writes to ``/var/log/zm/<name>.log`` (or the path in
   ``ZM_LOG_DEBUG_FILE``) using ZM's native format matching Perl's ``Logger.pm``
-- **Database handler** — writes to ZM's ``Logs`` table via ``mysql.connector``
-  (columns: ``TimeKey``, ``Component``, ``ServerId``, ``Pid``, ``Level``,
-  ``Code``, ``Message``, ``File``, ``Line``)
+- **Database handler** — writes to ZM's ``Logs`` table through the
+  installed MySQL driver (columns: ``TimeKey``, ``Component``, ``ServerId``,
+  ``Pid``, ``Level``, ``Code``, ``Message``, ``File``, ``Line``).  If the
+  database goes down, records are dropped and the handler tries to reconnect
+  at most every 30 seconds.  The other handlers keep logging.  With no driver
+  installed, the handler isn't attached and ``setup_zm_logging()`` logs one
+  warning with the ``pip install "pyzm[db]"`` command.
 - **Syslog handler** — sends to syslog facility ``LOCAL1``
 - **Console handler** — enabled when ``dump_console=True``
 

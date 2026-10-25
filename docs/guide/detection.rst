@@ -158,7 +158,8 @@ When ``detect_event()`` finds an audio-type model in the pipeline, it
 automatically extracts audio from the event's video file:
 
 1. Queries the ZM database for the event's ``DefaultVideo`` and the
-   monitor's ``Latitude`` / ``Longitude``.
+   monitor's ``Latitude`` / ``Longitude``.  This needs a MySQL driver
+   (included in ``pyzm[ml]``); without database access, audio is skipped.
 2. Probes the video for an audio stream (via ``ffprobe``).
 3. Extracts audio to a temporary WAV file (48 kHz, mono, PCM s16le).
 4. Computes the ISO week number from the event's start time.

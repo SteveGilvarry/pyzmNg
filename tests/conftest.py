@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import sys
+import types
+from unittest.mock import MagicMock
+
 import pytest
 
 from pyzm.models.config import (
@@ -148,3 +152,96 @@ def sample_zones() -> list[Zone]:
             pattern="(dog|cat)",
         ),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Fixtures -- MySQL drivers
+# ---------------------------------------------------------------------------
+# pyzm talks to the ZM database through mysql-connector-python or PyMySQL.
+# These install stand-in driver modules in sys.modules so tests run the same
+# whichever real driver (if any) the test machine has.
+
+class FakePyMySQLConnection:
+    """Stand-in for ``pymysql.connections.Connection``.
+
+    Method signatures match PyMySQL's, so a mysql-connector-only argument
+    (``cursor(dictionary=True)``, ``ping(attempts=...)``) raises TypeError
+    here the way it does against the real driver.
+    """
+
+    __module__ = "pymysql.connections"
+
+    def __init__(self) -> None:
+        self.cursor_obj = MagicMock()
+        self.cursor_classes: list = []
+        self.closed = False
+
+    def cursor(self, cursor=None):
+        self.cursor_classes.append(cursor)
+        return self.cursor_obj
+
+    def ping(self, reconnect=False):
+        if self.closed:
+            raise sys.modules["pymysql"].Error("Already closed")
+
+    def commit(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+
+def _hidden_mysql_connector() -> dict:
+    return {"mysql": None, "mysql.connector": None}
+
+
+def fake_pymysql_modules() -> dict:
+    """sys.modules entries for a fake PyMySQL, with mysql-connector hidden."""
+    mod = types.ModuleType("pymysql")
+    mod.Error = type("Error", (Exception,), {})
+    mod.connect = MagicMock(return_value=FakePyMySQLConnection())
+    cursors = types.ModuleType("pymysql.cursors")
+    cursors.DictCursor = type("DictCursor", (), {})
+    mod.cursors = cursors
+    return {"pymysql": mod, "pymysql.cursors": cursors, **_hidden_mysql_connector()}
+
+
+def fake_mysql_connector_modules() -> dict:
+    """sys.modules entries for a fake mysql-connector-python."""
+    pkg = types.ModuleType("mysql")
+    mod = types.ModuleType("mysql.connector")
+    mod.Error = type("Error", (Exception,), {})
+    mod.connect = MagicMock(return_value=MagicMock())
+    pkg.connector = mod
+    return {"mysql": pkg, "mysql.connector": mod}
+
+
+@pytest.fixture
+def fake_pymysql(monkeypatch):
+    """PyMySQL installed, mysql-connector not (a fresh ``pyzm[db]`` install)."""
+    modules = fake_pymysql_modules()
+    for name, mod in modules.items():
+        monkeypatch.setitem(sys.modules, name, mod)
+    return modules["pymysql"]
+
+
+@pytest.fixture
+def fake_mysql_connector(monkeypatch):
+    """mysql-connector installed (an install upgraded from pyzm <= 2.5)."""
+    modules = fake_mysql_connector_modules()
+    for name, mod in modules.items():
+        monkeypatch.setitem(sys.modules, name, mod)
+    return modules["mysql.connector"]
+
+
+@pytest.fixture
+def mock_connect(fake_mysql_connector):
+    """``connect`` of the fake mysql-connector."""
+    return fake_mysql_connector.connect
+
+
+@pytest.fixture
+def no_mysql_driver(monkeypatch):
+    """Neither MySQL driver importable (a base ``pip install pyzm``)."""
+    for name in ("pymysql", "pymysql.cursors", "mysql", "mysql.connector"):
+        monkeypatch.setitem(sys.modules, name, None)

@@ -4,14 +4,18 @@
 #
 # Usage:
 #   sudo ./scripts/setup_venv.sh                          # base only (ZM API client)
-#   sudo ./scripts/setup_venv.sh --extras ml              # + ML detection
+#   sudo ./scripts/setup_venv.sh --extras db              # + ZM database access
+#   sudo ./scripts/setup_venv.sh --extras ml              # + ML detection (includes db)
 #   sudo ./scripts/setup_venv.sh --extras ml,serve        # + ML + remote server
 #   sudo ./scripts/setup_venv.sh --extras ml,serve,train  # everything
 #   sudo ZM_VENV=/custom/path ./scripts/setup_venv.sh
 #
 # NOTE: The base install (no --extras) only includes the ZM API client.
+#       DB logging, event tagging, event paths and BirdNET audio also need
+#       the 'db' extra (a MySQL driver); 'ml' and 'full' include it.
 #       For ML detection (Detector), add the 'ml' extra.
-#       The 'serve' and 'train' extras auto-include ML dependencies.
+#       The 'serve' and 'train' extras auto-include ML dependencies, but
+#       not the 'db' extra.
 #
 # This script:
 #   1. Installs the python3-venv OS package if missing

@@ -425,12 +425,14 @@ class ZMClient:
         """Create or find a tag by name and link it to an event via direct DB."""
         import datetime
 
+        from pyzm.zm.db import dict_cursor
+
         conn = self._get_db()
         if conn is None:
             logger.warning("Could not connect to ZM database, skipping tagging")
             return
 
-        cur = conn.cursor(dictionary=True)
+        cur = dict_cursor(conn)
         try:
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -515,12 +517,14 @@ class ZMClient:
         """Construct the filesystem path for an event."""
         from datetime import datetime as _dt
 
+        from pyzm.zm.db import dict_cursor
+
         conn = self._get_db()
         if conn is None:
             logger.warning("Cannot resolve event path: DB unavailable")
             return None
 
-        cur = conn.cursor(dictionary=True)
+        cur = dict_cursor(conn)
         try:
             cur.execute(
                 "SELECT E.MonitorId, E.StartDateTime, E.StorageId, "
@@ -562,7 +566,13 @@ class ZMClient:
         scheme = (scheme or "Medium").capitalize()
         start_dt = row["StartDateTime"]
         if isinstance(start_dt, str):
-            start_dt = _dt.strptime(start_dt, "%Y-%m-%d %H:%M:%S")
+            try:
+                start_dt = _dt.strptime(start_dt, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                # PyMySQL returns MySQL's zero date as the string 0000-00-00 ...
+                logger.warning("Cannot resolve event path: event %s has StartDateTime %r",
+                               event_id, start_dt)
+                return None
 
         if scheme == "Deep":
             relative = "{}/{}".format(monitor_id, start_dt.strftime("%y/%m/%d/%H/%M/%S"))

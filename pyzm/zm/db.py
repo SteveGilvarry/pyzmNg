@@ -5,6 +5,10 @@ that ZM itself uses.  The directory is resolved by :func:`_resolve_conf_path`:
 an explicit ``conf_path`` or the ``PYZM_CONFPATH`` env var wins, otherwise a
 few well-known locations are probed (handles containerized ZM, which keeps
 config under ``/config``).  Explicit credential overrides take precedence.
+
+The driver is optional (``pip install "pyzm[db]"`` installs PyMySQL).  When
+mysql-connector-python is installed, as it is on most installs upgraded from
+pyzm 2.5.4 and older, it is used instead.
 """
 
 from __future__ import annotations
@@ -23,6 +27,17 @@ _CONF_PATH = os.environ.get("PYZM_CONFPATH", "/etc/zm")
 # install location; /config is the common container layout; /etc/zoneminder
 # is used by some distro packages.
 _CONF_SEARCH_PATHS = ("/etc/zm", "/config", "/etc/zoneminder")
+
+# Seconds to wait for the DB server to accept a connection. Without it a dead
+# DB host stalls detection and logging for the OS TCP timeout.
+_CONNECT_TIMEOUT = 10
+
+_DEFAULT_PORT = 3306
+
+_NO_DRIVER_HINT = (
+    'No MySQL driver installed, DB access unavailable. '
+    'Install it with: pip install "pyzm[db]"'
+)
 
 
 def _resolve_conf_path(conf_path: str | None = None) -> str:
@@ -68,6 +83,77 @@ def _read_zm_conf(conf_path: str = _CONF_PATH) -> dict[str, str]:
     }
 
 
+def _load_driver():
+    """Return the MySQL driver module, or ``None`` when none is installed."""
+    # mysql-connector first: installs upgraded from pyzm <= 2.5.4 have it, and
+    # keeping them on it means an upgrade never changes driver behavior.
+    try:
+        import mysql.connector
+        return mysql.connector
+    except ImportError:
+        pass
+    try:
+        import pymysql
+        return pymysql
+    except ImportError:
+        return None
+
+
+def driver_available() -> bool:
+    """Whether a MySQL driver is installed."""
+    return _load_driver() is not None
+
+
+def connect(host: str, user: str, password: str, database: str, *, quiet: bool = False):
+    """Open a connection to the ZM database, or return ``None``.
+
+    *host* takes ZM_DB_HOST syntax: ``host``, ``host:port`` or
+    ``host:/path/to/socket``.  Failures are logged at WARNING, or at DEBUG
+    with ``quiet=True`` (the log handler uses that, since it can't log
+    through itself).  No exception escapes.
+    """
+    log = logger.debug if quiet else logger.warning
+    driver = _load_driver()
+    if driver is None:
+        log(_NO_DRIVER_HINT)
+        return None
+
+    kw: dict = {"user": user, "password": password, "database": database}
+    where = host
+    if ":" in host:
+        host, suffix = host.split(":", 1)
+        if suffix.startswith("/"):
+            kw["unix_socket"] = suffix
+        else:
+            try:
+                kw["port"] = int(suffix)
+            except ValueError:
+                log("Invalid port in db_host %r, using default %d", where, _DEFAULT_PORT)
+                kw["port"] = _DEFAULT_PORT
+            kw["host"] = host
+    else:
+        kw["host"] = host
+        kw["port"] = _DEFAULT_PORT
+    if driver.__name__ == "pymysql":
+        kw["connect_timeout"] = _CONNECT_TIMEOUT
+    else:
+        kw["connection_timeout"] = _CONNECT_TIMEOUT
+
+    try:
+        return driver.connect(**kw)
+    except Exception as exc:  # driver errors, socket errors, PyMySQL's RuntimeError for missing cryptography
+        log("DB connect to %s failed: %s", where, exc)
+        return None
+
+
+def dict_cursor(conn):
+    """Return a cursor on *conn* whose rows are dicts, for either driver."""
+    if type(conn).__module__.startswith("pymysql"):
+        import pymysql.cursors
+        return conn.cursor(pymysql.cursors.DictCursor)
+    return conn.cursor(dictionary=True)
+
+
 def get_zm_db(
     db_user: str | None = None,
     db_password: str | None = None,
@@ -75,17 +161,18 @@ def get_zm_db(
     db_name: str | None = None,
     conf_path: str | None = None,
 ):
-    """Return a ``mysql.connector`` connection to the ZM database, or ``None``.
+    """Return a connection to the ZM database, or ``None``.
+
+    The connection comes from whichever driver is installed (see the module
+    docstring); use :func:`dict_cursor` for dict rows.
 
     Merge strategy: always try to read zm.conf first. If it's unreadable
     (permission denied, missing), log a warning and continue. Then overlay
     any explicit values — explicit values win over zm.conf values. Final
     fallback for host is ``"localhost"``, for db name is ``"zm"``.
     """
-    try:
-        import mysql.connector
-    except ImportError:
-        logger.warning("mysql-connector-python not installed, DB access unavailable")
+    if not driver_available():
+        logger.warning(_NO_DRIVER_HINT)
         return None
 
     # Start with zm.conf values (best-effort)
@@ -109,39 +196,4 @@ def get_zm_db(
     if db_name is not None:
         creds["database"] = db_name
 
-    host = creds["host"]
-    port = 3306
-
-    # ZM_DB_HOST can be "hostname:port" or "hostname:/path/to/socket"
-    if ":" in host:
-        host, suffix = host.split(":", 1)
-        if suffix.startswith("/"):
-            # Unix socket path — pass as unix_socket
-            try:
-                return mysql.connector.connect(
-                    user=creds["user"],
-                    password=creds["password"],
-                    database=creds["database"],
-                    unix_socket=suffix,
-                )
-            except mysql.connector.Error as exc:
-                logger.warning("DB connect via socket %s failed: %s", suffix, exc)
-                return None
-        else:
-            try:
-                port = int(suffix)
-            except ValueError:
-                logger.warning("Invalid port in db_host %r, using default 3306", creds["host"])
-                port = 3306
-
-    try:
-        return mysql.connector.connect(
-            host=host,
-            port=port,
-            user=creds["user"],
-            password=creds["password"],
-            database=creds["database"],
-        )
-    except mysql.connector.Error as exc:
-        logger.warning("DB connect to %s:%s failed: %s", host, port, exc)
-        return None
+    return connect(creds["host"], creds["user"], creds["password"], creds["database"])
